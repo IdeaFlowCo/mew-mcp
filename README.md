@@ -25,26 +25,20 @@ Most MCP runners (tools that can launch and communicate with MCP servers) use a 
    ```json
    {
      "mcpServers": {
-       // ... other MCP server configurations might be here ...
-
        "Mew MCP": {
          "command": "npx",
          "args": [
-           "-y", // Skips npx confirmation
-           "github:IdeaflowCo/mew-mcp" // <-- IMPORTANT: Replace with your actual GitHub repository path (e.g., mew-foundation/mew-mcp-server)
+           "-y",
+           "github:IdeaflowCo/mew-mcp"
          ],
          "env": {
-           // Required: User-specific ID for this session
-           "CURRENT_USER_ID": "", 
-
-           // Required: Core Mew API and Auth0 configuration for the Mew instance you are targeting
+           "CURRENT_USER_ID": "<your_user_id>",
            "BASE_URL": "https://mew-edge.ideaflow.app/api",
            "BASE_NODE_URL": "https://mew-edge.ideaflow.app/",
            "AUTH0_DOMAIN": "ideaflow-mew-dev.us.auth0.com",
-           "AUTH0_CLIENT_ID": "", // The Auth0 Client ID that can access the Mew API
-           "AUTH0_CLIENT_SECRET": "", // The Auth0 Client Secret
-           "AUTH0_AUDIENCE": "https://ideaflow-mew-dev.us.auth0.com/api/v2/", // The Audience configured in Auth0 for your Mew API
-           
+           "AUTH0_CLIENT_ID": "<your_auth0_client_id>",
+           "AUTH0_CLIENT_SECRET": "<your_auth0_client_secret>",
+           "AUTH0_AUDIENCE": "https://ideaflow-mew-dev.us.auth0.com/api/v2/"
          }
        }
      }
@@ -63,7 +57,7 @@ If you want to work on the Mew MCP server code itself:
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/IdeaflowCo/mew-mcp.git 
+    git clone https://github.com/IdeaflowCo/mew-mcp.git `
     cd mew-mcp
     ```
 
