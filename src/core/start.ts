@@ -1,11 +1,14 @@
 import express, { Request, Response, NextFunction } from "express";
 import dotenv from "dotenv";
-import { NodeService } from "../api/nodes";
-import { MCPConfig } from "../types/node"; // Assuming GraphNode is imported if used in updates
+import { NodeService } from "../api/nodes.js";
+import { MCPConfig } from "../types/node.js"; // Assuming GraphNode is imported if used in updates
 
 // Load environment variables from .env file in the project root
 dotenv.config();
-// console.log("[Mew MCP] [core/start] Environment variables loaded:", process.env);
+console.log(
+    "[Mew MCP] [core/start] Environment variables loaded:",
+    process.env
+);
 
 interface StartMCPParams {
     port: number;
@@ -21,11 +24,16 @@ interface StartMCPParams {
 const asyncHandler =
     (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) =>
     (req: Request, res: Response, next: NextFunction) => {
-        // console.log(`[Mew MCP] [core/start] Request to ${req.originalUrl} with body:`, req.body);
+        console.log(
+            `[Mew MCP] [core/start] Request to ${req.originalUrl} with body:`,
+            req.body
+        );
         Promise.resolve(fn(req, res, next)).catch((err) => {
             console.error(
                 `[Mew MCP] [core/start] Error in asyncHandler for ${req.originalUrl}:`,
-                err
+                err,
+                "Error details:",
+                err.stack
             );
             // Ensure a response is sent for unhandled errors within async handlers
             if (!res.headersSent) {
@@ -39,6 +47,9 @@ const asyncHandler =
     };
 
 export function startMCP({ port }: StartMCPParams): void {
+    console.log(
+        "[Mew MCP] [core/start] Initializing MCP server core function called..."
+    );
     console.log("[Mew MCP] [core/start] Initializing MCP server core...");
 
     const requiredEnvVars: string[] = [
@@ -64,7 +75,9 @@ export function startMCP({ port }: StartMCPParams): void {
             `Missing required environment variables: ${missingEnvVars.join(", ")}`
         );
     }
-    // console.log("[Mew MCP] [core/start] All required environment variables are present.");
+    console.log(
+        "[Mew MCP] [core/start] All required environment variables are present."
+    );
 
     const mcpConfigFromEnv: MCPConfig = {
         baseUrl: process.env.BASE_URL!,
@@ -79,14 +92,16 @@ export function startMCP({ port }: StartMCPParams): void {
 
     const nodeService = new NodeService(mcpConfigFromEnv);
     nodeService.setCurrentUserId(currentUserIdFromEnv);
-    // console.log(`[Mew MCP] [core/start] NodeService initialized and currentUserId set to: ${process.env.CURRENT_USER_ID}`);
+    console.log(
+        `[Mew MCP] [core/start] NodeService initialized and currentUserId set to: ${process.env.CURRENT_USER_ID}`
+    );
 
     const app = express();
     app.use(express.json());
 
     // MCP Endpoints
     app.get("/health", (_req: Request, res: Response) => {
-        // console.log("[Mew MCP] [core/start] Health check endpoint hit.");
+        console.log("[Mew MCP] [core/start] Health check endpoint hit.");
         res.status(200).json({
             status: "ok",
             currentUserId: nodeService.getCurrentUser().id,
@@ -96,7 +111,7 @@ export function startMCP({ port }: StartMCPParams): void {
     app.post(
         "/initialize",
         asyncHandler(async (_req: Request, res: Response) => {
-            // console.log("[Mew MCP] [core/start] /initialize called.");
+            console.log("[Mew MCP] [core/start] /initialize called.");
             // For now, just acknowledge. Implement actual initialization if needed.
             res.json({
                 success: true,
@@ -108,7 +123,7 @@ export function startMCP({ port }: StartMCPParams): void {
     app.post(
         "/getCurrentUser",
         asyncHandler(async (_req: Request, res: Response) => {
-            // console.log("[Mew MCP] [core/start] /getCurrentUser called.");
+            console.log("[Mew MCP] [core/start] /getCurrentUser called.");
             res.json(nodeService.getCurrentUser());
         })
     );
@@ -280,12 +295,16 @@ export function startMCP({ port }: StartMCPParams): void {
         console.log("  GET  /health");
     }).on("error", (err: Error) => {
         console.error(
-            "[Mew MCP] [core/start] CRITICAL: Express server failed to start or crashed:",
-            err
+            "[Mew MCP] [core/start] CRITICAL: Express server failed to start or crashed. Error details:",
+            err,
+            err.stack
         );
         throw err; // Re-throw to be caught by global handlers in mcp.ts if not already handled
     });
 
+    console.log(
+        "[Mew MCP] [core/start] MCP server core initialization complete. Waiting for requests..."
+    );
     console.log(
         "[Mew MCP] [core/start] MCP server core initialization complete."
     );

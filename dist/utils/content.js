@@ -1,4 +1,5 @@
-import { NodeContentType } from '../types/node';
+import crypto from "crypto";
+import { NodeContentType } from "../types/node.js";
 /**
  * Formats various input content types into the structured array format
  * expected by the Mew API's `node.content` field.

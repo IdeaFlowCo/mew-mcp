@@ -1,9 +1,10 @@
-import { startMCP } from "./core/start";
+import { startMCP } from "./core/start.js";
 
 // Port can also be loaded from .env if desired, e.g., process.env.PORT
 const port = parseInt(process.env.PORT || "8080", 10);
 
 function main() {
+    console.log("[Mew MCP] Executing main function...");
     console.log("[Mew MCP] Starting MCP server...");
     try {
         startMCP({
@@ -22,11 +23,17 @@ function main() {
 main();
 
 process.on("uncaughtException", (error) => {
+    console.error("[Mew MCP] CRITICAL: Uncaught Exception details:", error);
     console.error("[Mew MCP] CRITICAL: Uncaught Exception:", error);
     process.exit(1);
 });
 
 process.on("unhandledRejection", (reason, promise) => {
+    console.error(
+        "[Mew MCP] CRITICAL: Unhandled Rejection details:",
+        reason,
+        promise
+    );
     console.error(
         "[Mew MCP] CRITICAL: Unhandled Rejection at:",
         promise,

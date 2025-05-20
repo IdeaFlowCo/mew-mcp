@@ -1,10 +1,11 @@
-import { MCPConfig, GraphNode, NodeContent } from "../types/node";
-import { AuthService } from "./auth";
+import { MCPConfig, GraphNode, NodeContent } from "../types/node.js";
+import { AuthService } from "./auth.js";
 /**
  * Handles operations related to Mew nodes.
  */
 export declare class NodeService extends AuthService {
     private requestQueue;
+    protected config: MCPConfig;
     private currentUserId;
     constructor(config: MCPConfig);
     /**

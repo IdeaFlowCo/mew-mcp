@@ -1,4 +1,4 @@
-import { MCPConfig } from '../types/node';
+import { MCPConfig } from "../types/node.js";
 /**
  * Handles authentication with the Mew API using Auth0.
  */

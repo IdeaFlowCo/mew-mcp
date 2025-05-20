@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { NodeContentType, ContentBlock } from "../types/node";
+import { NodeContentType, ContentBlock } from "../types/node.js";
 
 /**
  * Formats various input content types into the structured array format

@@ -1,9 +1,9 @@
 import fetch from "node-fetch";
-import { NodeContentType, } from "../types/node";
-import { NodeOperationError } from "../types/errors";
-import { createNodeContent, uuid } from "../utils/content";
-import { RequestQueue } from "../utils/queue";
-import { AuthService } from "./auth";
+import { NodeContentType, } from "../types/node.js";
+import { NodeOperationError } from "../types/errors.js";
+import { createNodeContent, uuid } from "../utils/content.js";
+import { RequestQueue } from "../utils/queue.js";
+import { AuthService } from "./auth.js";
 /**
  * Handles operations related to Mew nodes.
  */
@@ -11,6 +11,7 @@ export class NodeService extends AuthService {
     constructor(config) {
         super(config);
         this.currentUserId = "";
+        this.config = config;
         this.requestQueue = new RequestQueue(10, 100, 50); // 10 batch size, 100ms max delay, 50 req/s rate limit
     }
     /**

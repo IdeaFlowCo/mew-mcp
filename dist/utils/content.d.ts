@@ -1,4 +1,4 @@
-import { ContentBlock } from '../types/node';
+import { ContentBlock } from "../types/node.js";
 /**
  * Formats various input content types into the structured array format
  * expected by the Mew API's `node.content` field.
