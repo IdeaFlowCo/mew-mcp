@@ -5,6 +5,9 @@
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "type": "module",
+    "bin": {
+        "mew-mcp": "dist/mcp.js"
+    },
     "scripts": {
         "build": "tsc",
         "test": "jest",
