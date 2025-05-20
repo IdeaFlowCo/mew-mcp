@@ -1,10 +1,11 @@
-import express, { Request, Response } from "express";
+import express, { Request, Response, NextFunction } from "express";
 import dotenv from "dotenv";
 import { NodeService } from "../api/nodes";
-import { MCPConfig, NodeContent, GraphNode } from "../types/node"; // Assuming GraphNode is imported if used in updates
+import { MCPConfig } from "../types/node"; // Assuming GraphNode is imported if used in updates
 
 // Load environment variables from .env file in the project root
 dotenv.config();
+// console.log("[Mew MCP] [core/start] Environment variables loaded:", process.env);
 
 interface StartMCPParams {
     port: number;
@@ -16,7 +17,30 @@ interface StartMCPParams {
 //     currentUserId: string;
 // }
 
+// Utility to handle async route handlers and catch errors
+const asyncHandler =
+    (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) =>
+    (req: Request, res: Response, next: NextFunction) => {
+        // console.log(`[Mew MCP] [core/start] Request to ${req.originalUrl} with body:`, req.body);
+        Promise.resolve(fn(req, res, next)).catch((err) => {
+            console.error(
+                `[Mew MCP] [core/start] Error in asyncHandler for ${req.originalUrl}:`,
+                err
+            );
+            // Ensure a response is sent for unhandled errors within async handlers
+            if (!res.headersSent) {
+                res.status(500).json({
+                    error: "Internal server error from asyncHandler",
+                    details: err.message,
+                });
+            }
+            // next(err); // Optionally pass to a more generic Express error handler if you have one
+        });
+    };
+
 export function startMCP({ port }: StartMCPParams): void {
+    console.log("[Mew MCP] [core/start] Initializing MCP server core...");
+
     const requiredEnvVars: string[] = [
         "BASE_URL",
         "BASE_NODE_URL",
@@ -27,19 +51,20 @@ export function startMCP({ port }: StartMCPParams): void {
         "CURRENT_USER_ID",
     ];
 
-    const missingVars = requiredEnvVars.filter(
+    const missingEnvVars = requiredEnvVars.filter(
         (varName) => !process.env[varName]
     );
 
-    if (missingVars.length > 0) {
+    if (missingEnvVars.length > 0) {
         console.error(
-            `Error: Missing required environment variables: ${missingVars.join(", ")}`
+            "[Mew MCP] [core/start] CRITICAL: Missing required environment variables:",
+            missingEnvVars.join(", ")
         );
-        console.error(
-            `Please ensure they are set in your .env file or system environment.`
+        throw new Error(
+            `Missing required environment variables: ${missingEnvVars.join(", ")}`
         );
-        process.exit(1);
     }
+    // console.log("[Mew MCP] [core/start] All required environment variables are present.");
 
     const mcpConfigFromEnv: MCPConfig = {
         baseUrl: process.env.BASE_URL!,
@@ -54,28 +79,43 @@ export function startMCP({ port }: StartMCPParams): void {
 
     const nodeService = new NodeService(mcpConfigFromEnv);
     nodeService.setCurrentUserId(currentUserIdFromEnv);
+    // console.log(`[Mew MCP] [core/start] NodeService initialized and currentUserId set to: ${process.env.CURRENT_USER_ID}`);
 
     const app = express();
     app.use(express.json());
 
-    const asyncHandler =
-        (fn: (req: Request, res: Response) => Promise<void>) =>
-        (req: Request, res: Response) => {
-            fn(req, res).catch((err) => {
-                console.error("Error in request handler:", err);
-                const errorMessage =
-                    err instanceof Error ? err.message : "Unknown server error";
-                const errorStack = err instanceof Error ? err.stack : undefined;
-                res.status(500).json({
-                    error: errorMessage,
-                    details: errorStack,
-                });
+    // MCP Endpoints
+    app.get("/health", (_req: Request, res: Response) => {
+        // console.log("[Mew MCP] [core/start] Health check endpoint hit.");
+        res.status(200).json({
+            status: "ok",
+            currentUserId: nodeService.getCurrentUser().id,
+        });
+    });
+
+    app.post(
+        "/initialize",
+        asyncHandler(async (_req: Request, res: Response) => {
+            // console.log("[Mew MCP] [core/start] /initialize called.");
+            // For now, just acknowledge. Implement actual initialization if needed.
+            res.json({
+                success: true,
+                currentUserId: nodeService.getCurrentUser().id,
             });
-        };
+        })
+    );
+
+    app.post(
+        "/getCurrentUser",
+        asyncHandler(async (_req: Request, res: Response) => {
+            // console.log("[Mew MCP] [core/start] /getCurrentUser called.");
+            res.json(nodeService.getCurrentUser());
+        })
+    );
 
     app.post(
         "/findNodeByText",
-        asyncHandler(async (req, res) => {
+        asyncHandler(async (req: Request, res: Response) => {
             const { parentNodeId, nodeText } = req.body;
             if (
                 typeof parentNodeId !== "string" ||
@@ -96,7 +136,7 @@ export function startMCP({ port }: StartMCPParams): void {
 
     app.post(
         "/getChildNodes",
-        asyncHandler(async (req, res) => {
+        asyncHandler(async (req: Request, res: Response) => {
             const { parentNodeId } = req.body;
             if (typeof parentNodeId !== "string") {
                 res.status(400).json({
@@ -111,11 +151,11 @@ export function startMCP({ port }: StartMCPParams): void {
 
     app.post(
         "/getLayerData",
-        asyncHandler(async (req, res) => {
+        asyncHandler(async (req: Request, res: Response) => {
             const { objectIds } = req.body;
             if (
                 !Array.isArray(objectIds) ||
-                objectIds.some((id) => typeof id !== "string")
+                !objectIds.every((id) => typeof id === "string")
             ) {
                 res.status(400).json({
                     error: "objectIds must be an array of strings",
@@ -129,57 +169,49 @@ export function startMCP({ port }: StartMCPParams): void {
 
     app.post(
         "/updateNode",
-        asyncHandler(async (req, res) => {
-            const { nodeId, updates } = req.body as {
-                nodeId: string;
-                updates: Partial<GraphNode>;
-            };
+        asyncHandler(async (req: Request, res: Response) => {
+            const { nodeId, updates } = req.body;
             if (
                 typeof nodeId !== "string" ||
                 typeof updates !== "object" ||
                 updates === null
             ) {
                 res.status(400).json({
-                    error: "nodeId (string) and updates (object) are required",
+                    error: "nodeId must be a string and updates must be an object",
                 });
                 return;
             }
             await nodeService.updateNode(nodeId, updates);
-            res.status(200).json({ message: "Node updated successfully" });
+            res.json({ success: true });
         })
     );
 
     app.post(
         "/deleteNode",
-        asyncHandler(async (req, res) => {
+        asyncHandler(async (req: Request, res: Response) => {
             const { nodeId } = req.body;
             if (typeof nodeId !== "string") {
                 res.status(400).json({ error: "nodeId must be a string" });
                 return;
             }
             await nodeService.deleteNode(nodeId);
-            res.status(200).json({ message: "Node deleted successfully" });
+            res.json({ success: true });
         })
     );
 
     app.post(
         "/addNode",
-        asyncHandler(async (req, res) => {
+        asyncHandler(async (req: Request, res: Response) => {
             const {
                 content,
                 parentNodeId,
                 relationLabel,
                 isChecked,
                 authorId,
-            } = req.body as {
-                content: NodeContent;
-                parentNodeId?: string;
-                relationLabel?: string;
-                isChecked?: boolean;
-                authorId?: string;
-            };
+            } = req.body;
+            // Basic validation - extend as needed
             if (typeof content !== "object" || content === null) {
-                res.status(400).json({ error: "content (object) is required" });
+                res.status(400).json({ error: "content must be an object" });
                 return;
             }
             const result = await nodeService.addNode({
@@ -195,7 +227,7 @@ export function startMCP({ port }: StartMCPParams): void {
 
     app.post(
         "/getNodeUrl",
-        asyncHandler(async (req, res) => {
+        asyncHandler(async (req: Request, res: Response) => {
             const { nodeId } = req.body;
             if (typeof nodeId !== "string") {
                 res.status(400).json({ error: "nodeId must be a string" });
@@ -206,16 +238,29 @@ export function startMCP({ port }: StartMCPParams): void {
         })
     );
 
-    app.get("/health", (_req: Request, res: Response) => {
-        res.status(200).json({
-            status: "ok",
-            timestamp: new Date().toISOString(),
-            user: currentUserIdFromEnv, // Optionally confirm which user's config is loaded
-        });
+    // Catch-all for unhandled routes - must be after all other routes
+    app.use((_req: Request, res: Response) => {
+        console.error(
+            `[Mew MCP] [core/start] Unhandled route: ${_req.originalUrl}`
+        );
+        res.status(404).json({ error: "Not Found" });
+    });
+
+    // Generic error handler - must be last middleware
+    app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+        console.error("[Mew MCP] [core/start] Unhandled Express error:", err);
+        if (!res.headersSent) {
+            res.status(500).json({
+                error: "Internal Server Error",
+                details: err.message,
+            });
+        }
     });
 
     app.listen(port, () => {
-        console.log(`Mew MCP server listening on http://localhost:${port}`);
+        console.log(
+            `[Mew MCP] [core/start] Server listening on http://localhost:${port}`
+        );
         console.log(
             `Configuration loaded from .env file (or system environment variables).`
         );
@@ -233,5 +278,15 @@ export function startMCP({ port }: StartMCPParams): void {
         );
         console.log("  POST /getNodeUrl { nodeId }");
         console.log("  GET  /health");
+    }).on("error", (err: Error) => {
+        console.error(
+            "[Mew MCP] [core/start] CRITICAL: Express server failed to start or crashed:",
+            err
+        );
+        throw err; // Re-throw to be caught by global handlers in mcp.ts if not already handled
     });
+
+    console.log(
+        "[Mew MCP] [core/start] MCP server core initialization complete."
+    );
 }

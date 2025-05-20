@@ -1,4 +1,5 @@
-import { NodeContentType, ContentBlock } from '../types/node';
+import crypto from "crypto";
+import { NodeContentType, ContentBlock } from "../types/node";
 
 /**
  * Formats various input content types into the structured array format
@@ -7,41 +8,41 @@ import { NodeContentType, ContentBlock } from '../types/node';
  * @returns The formatted content array
  */
 export function createNodeContent(content: any): ContentBlock[] {
-  // If content is already in the correct format, return it
-  if (Array.isArray(content)) {
-    return content;
-  }
+    // If content is already in the correct format, return it
+    if (Array.isArray(content)) {
+        return content;
+    }
 
-  // Handle our NodeContent type
-  if (content.type === NodeContentType.Text) {
-    return [{ type: "text", value: content.text, styles: 0 }];
-  } else if (content.type === "text" && content.text) {
-    // Handle the format coming from mewClipper
-    return [{ type: "text", value: content.text, styles: 0 }];
-  } else if (content.type === NodeContentType.Mention) {
-    return [
-      {
-        type: "text",
-        value: content.mentionData.preMentionText,
-        styles: 0,
-      },
-      {
-        type: "mention",
-        value: content.mentionData.mentionNodeId,
-        mentionTrigger: "@",
-      },
-      {
-        type: "text",
-        value: content.mentionData.postMentionText,
-        styles: 0,
-      },
-    ];
-  } else if (content.type === NodeContentType.Replacement) {
-    return [{ type: "text", value: "replacement", styles: 0 }];
-  }
+    // Handle our NodeContent type
+    if (content.type === NodeContentType.Text) {
+        return [{ type: "text", value: content.text, styles: 0 }];
+    } else if (content.type === "text" && content.text) {
+        // Handle the format coming from mewClipper
+        return [{ type: "text", value: content.text, styles: 0 }];
+    } else if (content.type === NodeContentType.Mention) {
+        return [
+            {
+                type: "text",
+                value: content.mentionData.preMentionText,
+                styles: 0,
+            },
+            {
+                type: "mention",
+                value: content.mentionData.mentionNodeId,
+                mentionTrigger: "@",
+            },
+            {
+                type: "text",
+                value: content.mentionData.postMentionText,
+                styles: 0,
+            },
+        ];
+    } else if (content.type === NodeContentType.Replacement) {
+        return [{ type: "text", value: "replacement", styles: 0 }];
+    }
 
-  // Default case
-  return [{ type: "text", value: "", styles: 0 }];
+    // Default case
+    return [{ type: "text", value: "", styles: 0 }];
 }
 
 /**
@@ -50,15 +51,15 @@ export function createNodeContent(content: any): ContentBlock[] {
  * @returns The text value or null if not found/applicable
  */
 export function getNodeTextContent(node: any): string | null {
-  if (
-    node &&
-    node.content &&
-    node.content.length > 0 &&
-    node.content[0].type === "text"
-  ) {
-    return node.content[0].value;
-  }
-  return null;
+    if (
+        node &&
+        node.content &&
+        node.content.length > 0 &&
+        node.content[0].type === "text"
+    ) {
+        return node.content[0].value;
+    }
+    return null;
 }
 
 /**
@@ -67,7 +68,7 @@ export function getNodeTextContent(node: any): string | null {
  * @returns The normalized value
  */
 export function normalizeValue(value: string): string {
-  return value.toLowerCase().trim();
+    return value.toLowerCase().trim();
 }
 
 /**
@@ -75,5 +76,5 @@ export function normalizeValue(value: string): string {
  * @returns A UUID v4 string
  */
 export function uuid(): string {
-  return crypto.randomUUID();
-} 
+    return crypto.randomUUID();
+}
