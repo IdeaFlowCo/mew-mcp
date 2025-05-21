@@ -31554,7 +31554,10 @@ function startMCP({ port: port2 }) {
 }
 
 // src/mcp.ts
-console.error("[Mew MCP] [mcp.ts] Script execution started.");
+var CACHE_BUSTER_VERSION = "v20250520_184700";
+console.error(
+  `[Mew MCP] [mcp.ts] Script execution started. CACHE_BUSTER: ${CACHE_BUSTER_VERSION}`
+);
 var port = parseInt(process.env.PORT || "8080", 10);
 console.error(`[Mew MCP] [mcp.ts] Port configured: ${port}`);
 function main() {
