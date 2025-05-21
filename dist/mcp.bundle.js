@@ -40,7 +40,15 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 // node_modules/depd/index.js
 var require_depd = __commonJS({
   "node_modules/depd/index.js"(exports, module) {
-    var relative = __require("path").relative;
+    var relative;
+    try {
+      relative = __require("path").relative;
+    } catch (e2) {
+      console.error('[Mew MCP] [depd-patch] Failed to require("path").relative. Using fallback for path formatting. Error: ' + (e2.message || e2));
+      relative = function(from, to) {
+        return to;
+      };
+    }
     module.exports = depd;
     var basePath = process.cwd();
     function containsNamespace(str, namespace) {

@@ -1,0 +1,22 @@
+diff --git a/node_modules/depd/index.js b/node_modules/depd/index.js
+index 1bf2fcf..7987b77 100644
+--- a/node_modules/depd/index.js
++++ b/node_modules/depd/index.js
+@@ -8,7 +8,16 @@
+  * Module dependencies.
+  */
+ 
+-var relative = require('path').relative
++var relative;
++try {
++  relative = require('path').relative;
++} catch (e) {
++  // Fallback if 'path' module or its 'relative' function is not available/permissible
++  console.error('[Mew MCP] [depd-patch] Failed to require("path").relative. Using fallback for path formatting. Error: ' + (e.message || e));
++  relative = function (from, to) {
++    return to; // Simply return the 'to' path (absolute)
++  };
++}
+ 
+ /**
+  * Module exports.
