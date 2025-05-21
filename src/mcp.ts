@@ -139,7 +139,7 @@ server.tool(
                     "[Mew MCP] [addNode] User root node ID not in cache. Fetching..."
                 );
                 try {
-                    const userRootId = nodeService.getUserRootNodeId();
+                    const userRootId = await nodeService.getUserRootNodeId();
                     if (!userRootId) {
                         console.error(
                             "[Mew MCP] [addNode] Failed to fetch user root node ID: nodeService.getUserRootNodeId() returned a falsy value."
@@ -244,7 +244,7 @@ server.tool("getNodeUrl", { nodeId: z.string() }, async ({ nodeId }) => {
 
 server.tool("getUserRootNodeId", {}, async () => {
     try {
-        const rootNodeId = nodeService.getUserRootNodeId();
+        const rootNodeId = await nodeService.getUserRootNodeId();
         return {
             content: [{ type: "text", text: JSON.stringify({ rootNodeId }) }],
         };

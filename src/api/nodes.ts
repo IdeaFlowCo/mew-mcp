@@ -596,16 +596,15 @@ export class NodeService extends AuthService {
     }
 
     /**
-     * Gets the current user's root node ID.
-     * This ID is derived from a conventional URL structure.
-     * @returns The user's root node ID string.
-     * @throws Error if currentUserId or baseNodeUrl is not set.
+     * Gets the current user's root node ID by querying the relation from global root.
+     * @returns A promise that resolves to the user's root node ID.
+     * @throws NodeOperationError if currentUserId, baseNodeUrl, or relation data is not available.
      */
-    getUserRootNodeId(): string {
+    async getUserRootNodeId(): Promise<string> {
         if (!this.currentUserId) {
             throw new NodeOperationError(
                 "Current User ID is not set. Cannot determine root node ID.",
-                "unknown", // No specific node ID applies here
+                "unknown",
                 500,
                 "User ID not available"
             );
@@ -619,30 +618,23 @@ export class NodeService extends AuthService {
             );
         }
 
-        // Construct the specific URL format from which the root node ID is parsed.
-        // Example: https://mew-edge.ideaflow.app/g/all/global-root-to-users/all/users-to-user-relation-id-auth0|userID/user-root-id-auth0|userID
+        // Determine the relation ID for the user's root node under the global root.
         const encodedUserId = encodeURIComponent(this.currentUserId);
-        const userRootNodeUrl = `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-${encodedUserId}/user-root-id-${encodedUserId}`;
-        console.error(
-            "[NodeService] Constructed userRootNodeUrl:",
-            userRootNodeUrl
-        );
-
-        try {
-            return NodeService.parseUserRootNodeIdFromUrl(userRootNodeUrl);
-        } catch (error) {
-            console.error(
-                "[NodeService] Failed to parse user root node ID from URL:",
-                userRootNodeUrl,
-                error
-            );
-            // Re-throw as a NodeOperationError or a more specific error type if desired.
+        const relationId = `users-to-user-relation-id-${encodedUserId}`;
+        // Fetch the relation object from the API
+        const layerData = await this.getLayerData([relationId]);
+        const relation = layerData.data.relationsById[relationId] as
+            | Relation
+            | undefined;
+        if (!relation || !relation.toId) {
             throw new NodeOperationError(
-                `Failed to parse user root node ID from URL: ${error instanceof Error ? error.message : String(error)}`,
-                "unknown",
-                500,
-                `URL: ${userRootNodeUrl}`
+                `Failed to fetch user root node ID: missing or invalid relation '${relationId}'.`,
+                relationId,
+                404,
+                JSON.stringify(layerData)
             );
         }
+        // The toId of this relation is the actual user root node ID in the graph
+        return relation.toId;
     }
 }

@@ -324,7 +324,7 @@ export function startMCP({ port }: StartMCPParams): void {
         asyncHandler(async (_req: Request, res: Response) => {
             console.error("[Mew MCP] [core/start] /getUserRootNodeId called.");
             try {
-                const rootNodeId = nodeService.getUserRootNodeId();
+                const rootNodeId = await nodeService.getUserRootNodeId();
                 res.json({ rootNodeId });
             } catch (error: any) {
                 console.error(
