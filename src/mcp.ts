@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 console.error("[Mew MCP] [mcp.ts] Script execution started."); // DEBUG
 
 import { startMCP } from "./core/start.js";
