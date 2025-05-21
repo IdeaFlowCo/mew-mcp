@@ -5,9 +5,8 @@ import { MCPConfig } from "../types/node.js"; // Assuming GraphNode is imported 
 
 // Load environment variables from .env file in the project root
 dotenv.config();
-console.log(
-    "[Mew MCP] [core/start] Environment variables loaded:",
-    process.env
+console.error(
+    "[Mew MCP] [core/start] Environment variables loaded (content omitted for brevity)."
 );
 
 interface StartMCPParams {
@@ -24,7 +23,7 @@ interface StartMCPParams {
 const asyncHandler =
     (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) =>
     (req: Request, res: Response, next: NextFunction) => {
-        console.log(
+        console.error(
             `[Mew MCP] [core/start] Request to ${req.originalUrl} with body:`,
             req.body
         );
@@ -47,10 +46,11 @@ const asyncHandler =
     };
 
 export function startMCP({ port }: StartMCPParams): void {
-    console.log(
+    console.error("[Mew MCP] [core/start.ts] startMCP() function: Entered"); // DEBUG
+    console.error(
         "[Mew MCP] [core/start] Initializing MCP server core function called..."
     );
-    console.log("[Mew MCP] [core/start] Initializing MCP server core...");
+    console.error("[Mew MCP] [core/start] Initializing MCP server core...");
 
     const requiredEnvVars: string[] = [
         "BASE_URL",
@@ -75,7 +75,7 @@ export function startMCP({ port }: StartMCPParams): void {
             `Missing required environment variables: ${missingEnvVars.join(", ")}`
         );
     }
-    console.log(
+    console.error(
         "[Mew MCP] [core/start] All required environment variables are present."
     );
 
@@ -90,9 +90,15 @@ export function startMCP({ port }: StartMCPParams): void {
 
     const currentUserIdFromEnv = process.env.CURRENT_USER_ID!;
 
+    console.error(
+        "[Mew MCP] [core/start.ts] startMCP() function: Initializing NodeService..."
+    ); // DEBUG
     const nodeService = new NodeService(mcpConfigFromEnv);
     nodeService.setCurrentUserId(currentUserIdFromEnv);
-    console.log(
+    console.error(
+        "[Mew MCP] [core/start.ts] startMCP() function: NodeService initialized."
+    ); // DEBUG
+    console.error(
         `[Mew MCP] [core/start] NodeService initialized and currentUserId set to: ${process.env.CURRENT_USER_ID}`
     );
 
@@ -101,7 +107,7 @@ export function startMCP({ port }: StartMCPParams): void {
 
     // MCP Endpoints
     app.get("/health", (_req: Request, res: Response) => {
-        console.log("[Mew MCP] [core/start] Health check endpoint hit.");
+        console.error("[Mew MCP] [core/start] Health check endpoint hit.");
         res.status(200).json({
             status: "ok",
             currentUserId: nodeService.getCurrentUser().id,
@@ -111,19 +117,47 @@ export function startMCP({ port }: StartMCPParams): void {
     app.post(
         "/initialize",
         asyncHandler(async (_req: Request, res: Response) => {
-            console.log("[Mew MCP] [core/start] /initialize called.");
-            // For now, just acknowledge. Implement actual initialization if needed.
-            res.json({
-                success: true,
-                currentUserId: nodeService.getCurrentUser().id,
-            });
+            console.error(
+                "[Mew MCP] [core/start] /initialize handler: Entered"
+            ); // Added for debugging
+            try {
+                console.error("[Mew MCP] [core/start] /initialize called.");
+                // For now, just acknowledge. Implement actual initialization if needed.
+                res.json({
+                    success: true,
+                    currentUserId: nodeService.getCurrentUser().id,
+                });
+                console.error(
+                    "[Mew MCP] [core/start] /initialize handler: Successfully processed and response sent."
+                ); // Added for debugging
+            } catch (error: any) {
+                console.error(
+                    "[Mew MCP] [core/start] /initialize handler: CRITICAL ERROR caught:",
+                    error
+                );
+                console.error(
+                    "[Mew MCP] [core/start] /initialize handler: Error message:",
+                    error.message
+                );
+                console.error(
+                    "[Mew MCP] [core/start] /initialize handler: Error stack:",
+                    error.stack
+                );
+                // Ensure a response is sent even in case of an error, if not already sent
+                if (!res.headersSent) {
+                    res.status(500).json({
+                        error: "Critical error during initialize",
+                        details: error.message,
+                    });
+                }
+            }
         })
     );
 
     app.post(
         "/getCurrentUser",
         asyncHandler(async (_req: Request, res: Response) => {
-            console.log("[Mew MCP] [core/start] /getCurrentUser called.");
+            console.error("[Mew MCP] [core/start] /getCurrentUser called.");
             res.json(nodeService.getCurrentUser());
         })
     );
@@ -253,6 +287,26 @@ export function startMCP({ port }: StartMCPParams): void {
         })
     );
 
+    app.post(
+        "/getUserRootNodeId",
+        asyncHandler(async (_req: Request, res: Response) => {
+            console.error("[Mew MCP] [core/start] /getUserRootNodeId called.");
+            try {
+                const rootNodeId = nodeService.getUserRootNodeId();
+                res.json({ rootNodeId });
+            } catch (error: any) {
+                console.error(
+                    "[Mew MCP] [core/start] Error in /getUserRootNodeId:",
+                    error.message
+                );
+                res.status(500).json({
+                    error: "Failed to get user root node ID",
+                    details: error.message,
+                });
+            }
+        })
+    );
+
     // Catch-all for unhandled routes - must be after all other routes
     app.use((_req: Request, res: Response) => {
         console.error(
@@ -272,40 +326,63 @@ export function startMCP({ port }: StartMCPParams): void {
         }
     });
 
+    console.error(
+        "[Mew MCP] [core/start.ts] startMCP() function: About to call app.listen()."
+    ); // DEBUG
     app.listen(port, () => {
-        console.log(
+        console.error(
+            "[Mew MCP] [core/start.ts] app.listen() callback: Server started successfully on port",
+            port
+        ); // DEBUG
+        console.error(
             `[Mew MCP] [core/start] Server listening on http://localhost:${port}`
         );
-        console.log(
+        console.error(
             `Configuration loaded from .env file (or system environment variables).`
         );
-        console.log(
+        console.error(
             `Current User ID for MCP operations: ${currentUserIdFromEnv}`
         );
-        console.log("Available endpoints:");
-        console.log("  POST /findNodeByText { parentNodeId, nodeText }");
-        console.log("  POST /getChildNodes { parentNodeId }");
-        console.log("  POST /getLayerData { objectIds }");
-        console.log("  POST /updateNode { nodeId, updates }");
-        console.log("  POST /deleteNode { nodeId }");
-        console.log(
+        console.error("Available endpoints:");
+        console.error("  POST /findNodeByText { parentNodeId, nodeText }");
+        console.error("  POST /getChildNodes { parentNodeId }");
+        console.error("  POST /getLayerData { objectIds }");
+        console.error("  POST /updateNode { nodeId, updates }");
+        console.error("  POST /deleteNode { nodeId }");
+        console.error(
             "  POST /addNode { content, parentNodeId?, relationLabel?, isChecked?, authorId? }"
         );
-        console.log("  POST /getNodeUrl { nodeId }");
-        console.log("  GET  /health");
+        console.error("  POST /getNodeUrl { nodeId }");
+        console.error("  POST /getUserRootNodeId"); // New endpoint
+        console.error("  GET  /health");
     }).on("error", (err: Error) => {
+        console.error(
+            "[Mew MCP] [core/start.ts] CRITICAL: Express server app.listen() emitted error event."
+        ); // DEBUG
         console.error(
             "[Mew MCP] [core/start] CRITICAL: Express server failed to start or crashed. Error details:",
             err,
             err.stack
         );
+        // It's crucial to also log name and message if they are not part of the default err.toString()
+        console.error(
+            "[Mew MCP] [core/start.ts] CRITICAL: Error Name:",
+            err.name
+        ); // DEBUG
+        console.error(
+            "[Mew MCP] [core/start.ts] CRITICAL: Error Message:",
+            err.message
+        ); // DEBUG
         throw err; // Re-throw to be caught by global handlers in mcp.ts if not already handled
     });
 
-    console.log(
+    console.error(
+        "[Mew MCP] [core/start.ts] startMCP() function: app.listen() called, setup supposedly complete."
+    ); // DEBUG
+    console.error(
         "[Mew MCP] [core/start] MCP server core initialization complete. Waiting for requests..."
     );
-    console.log(
+    console.error(
         "[Mew MCP] [core/start] MCP server core initialization complete."
     );
 }

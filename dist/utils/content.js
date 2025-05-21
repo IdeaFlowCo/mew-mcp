@@ -13,18 +13,17 @@ export function createNodeContent(content) {
     }
     // Handle our NodeContent type
     if (content.type === NodeContentType.Text) {
-        return [{ type: "text", value: content.text, styles: 0 }];
+        return [{ type: "text", value: content.text }];
     }
     else if (content.type === "text" && content.text) {
         // Handle the format coming from mewClipper
-        return [{ type: "text", value: content.text, styles: 0 }];
+        return [{ type: "text", value: content.text }];
     }
     else if (content.type === NodeContentType.Mention) {
         return [
             {
                 type: "text",
                 value: content.mentionData.preMentionText,
-                styles: 0,
             },
             {
                 type: "mention",
@@ -34,15 +33,14 @@ export function createNodeContent(content) {
             {
                 type: "text",
                 value: content.mentionData.postMentionText,
-                styles: 0,
             },
         ];
     }
     else if (content.type === NodeContentType.Replacement) {
-        return [{ type: "text", value: "replacement", styles: 0 }];
+        return [{ type: "text", value: "replacement" }];
     }
     // Default case
-    return [{ type: "text", value: "", styles: 0 }];
+    return [{ type: "text", value: "" }];
 }
 /**
  * Extracts the text value from a simple Mew text node's content array.

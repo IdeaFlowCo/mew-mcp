@@ -24,7 +24,7 @@ export class RequestQueue {
                     const timeSinceLastRequest = now - this.lastRequestTime;
                     const minTimeBetweenRequests = 1000 / this.rateLimit;
                     if (timeSinceLastRequest < minTimeBetweenRequests) {
-                        await new Promise(resolve => setTimeout(resolve, minTimeBetweenRequests - timeSinceLastRequest));
+                        await new Promise((resolve) => setTimeout(resolve, minTimeBetweenRequests - timeSinceLastRequest));
                     }
                     const result = await request();
                     this.lastRequestTime = Date.now();
@@ -41,21 +41,41 @@ export class RequestQueue {
      * Processes the queue according to the configured batch size and delay.
      */
     async processQueue() {
-        if (this.processing || this.queue.length === 0)
+        // If already processing or queue is empty, do nothing.
+        if (this.processing || this.queue.length === 0) {
             return;
+        }
         this.processing = true;
         try {
+            // Process queue items in a loop until empty
             while (this.queue.length > 0) {
                 const batch = this.queue.splice(0, this.batchSize);
-                await Promise.all(batch.map(request => request()));
+                // Use Promise.allSettled to ensure all requests in the batch are processed
+                // and to prevent an early exit if one request fails.
+                // The individual promises returned by enqueue() are responsible for their own
+                // resolution/rejection based on the outcome of the original request() function.
+                const results = await Promise.allSettled(batch.map((req) => req()));
+                // Optional: Log settled results for debugging queue behavior
+                results.forEach((result, index) => {
+                    if (result.status === "rejected") {
+                        // This log helps identify if individual requests are failing within a batch
+                        // and if their rejections are being surfaced by the enqueue promise.
+                        console.error(`[Mew MCP] [RequestQueue] Request in batch (index ${index}) settled as rejected:`, result.reason);
+                    }
+                });
+                // If there are still items in the queue, wait before processing the next batch
                 if (this.queue.length > 0) {
-                    // Wait for the configured delay before processing the next batch
-                    await new Promise(resolve => setTimeout(resolve, this.maxDelay));
-                    await this.processQueue();
+                    await new Promise((resolve) => setTimeout(resolve, this.maxDelay));
                 }
             }
         }
+        catch (error) {
+            // This catch is a general safeguard for the processQueue loop itself.
+            // Promise.allSettled should prevent this from being hit by individual request failures.
+            console.error("[Mew MCP] [RequestQueue] Critical error in processQueue loop:", error);
+        }
         finally {
+            // Ensure processing flag is reset once the queue is empty or an error occurs
             this.processing = false;
         }
     }

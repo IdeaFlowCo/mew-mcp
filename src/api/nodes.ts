@@ -173,7 +173,7 @@ export class NodeService extends AuthService {
                     id: nodeId,
                     authorId: existingNode.authorId,
                     createdAt: existingNode.createdAt,
-                    updatedAt: timestamp,
+                    updatedAt: new Date(timestamp).toISOString(),
                 },
             };
 
@@ -307,15 +307,18 @@ export class NodeService extends AuthService {
                 version: 1,
                 id: newNodeId,
                 authorId: usedAuthorId,
-                createdAt: timestamp,
-                updatedAt: timestamp,
+                createdAt: new Date(timestamp).toISOString(), // Using ISO string for z.coerce.date()
+                updatedAt: new Date(timestamp).toISOString(), // Using ISO string for z.coerce.date()
                 content: nodeContent,
-                isPublic: true,
-                isNewRelatedObjectsPublic: false,
+                isPublic: true, // Default in schema is false, but example sends true
+                isNewRelatedObjectsPublic: false, // Default in schema is false, example sends false
                 canonicalRelationId: parentNodeId
                     ? parentChildRelationId
-                    : null,
-                isChecked: isChecked ?? null,
+                    : null, // Matches schema default
+                isChecked: isChecked ?? null, // Matches schema default
+                accessMode: 0, // Added, default from schema
+                attributes: {}, // Added, default from schema (empty object for optional sub-fields)
+                // relationId is still omitted as it's not in SerializedNodeSchema and not in example's addNode node object
             },
         });
 
@@ -361,15 +364,17 @@ export class NodeService extends AuthService {
                     version: 1,
                     id: relationLabelNodeId,
                     authorId: usedAuthorId,
-                    createdAt: timestamp,
-                    updatedAt: timestamp,
+                    createdAt: new Date(timestamp).toISOString(), // Using ISO string
+                    updatedAt: new Date(timestamp).toISOString(), // Using ISO string
                     content: [
-                        { type: "text", value: relationLabel, styles: 0 },
+                        { type: "text", value: relationLabel, styles: 0 }, // styles:0 is fine as per SerializedChipSchema
                     ],
                     isPublic: true,
                     isNewRelatedObjectsPublic: false,
                     canonicalRelationId: null,
                     isChecked: null,
+                    accessMode: 0, // Added
+                    attributes: {}, // Added
                 },
             });
             const newRelationTypeId = uuid();
@@ -482,11 +487,15 @@ export class NodeService extends AuthService {
         const token = await this.getAccessToken();
         const payload = {
             clientId: this.config.auth0ClientId,
-            userId: usedAuthorId,
+            userId: usedAuthorId, // Removed prefix, using raw usedAuthorId
             transactionId: transactionId,
             updates: updates,
         };
 
+        console.log(
+            "[NodeService] addNode /sync payload:",
+            JSON.stringify(payload, null, 2)
+        );
         await this.requestQueue.enqueue(async () => {
             const response = await fetch(`${this.config.baseUrl}/sync`, {
                 method: "POST",
@@ -539,5 +548,101 @@ export class NodeService extends AuthService {
             return `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-unknown/user-root-id-unknown`;
         }
         return `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-${this.currentUserId}/user-root-id-${this.currentUserId}/node-${nodeId}`;
+    }
+
+    /**
+     * Parses the user root node ID from a specially formatted URL.
+     * @param url The user root node URL.
+     * @returns The extracted user root node ID.
+     * @throws Error if the URL format is invalid.
+     */
+    private static parseUserRootNodeIdFromUrl(url: string): string {
+        // This regex is specific to the known structure of user root node URLs.
+        // It expects a format like: https://<base>/g/all/global-root-to-users/all/users-to-user-relation-id-<auth0_id>/user-root-id-<auth0_id>
+        const regex = /users-to-user-relation-id-[^\/]+\/user-root-id-[^\/]+$/;
+        if (!regex.test(url)) {
+            console.error(
+                "[NodeService] Invalid user root node URL format for parsing:",
+                url
+            );
+            throw new Error("Invalid user root node URL format for parsing.");
+        }
+        const urlParts = url.split("/");
+        const lastPart = urlParts[urlParts.length - 1]; // Should be "user-root-id-..."
+
+        // The user ID (e.g., auth0|xxxx) can contain '|', which gets URL encoded.
+        // We need to decode it properly.
+        // Example lastPart: user-root-id-auth0%7C67b00414a18956f5273397da
+
+        let decoded = lastPart;
+        try {
+            // Full URL decode handles %7C and other potential encodings.
+            decoded = decodeURIComponent(lastPart);
+        } catch (e) {
+            console.error(
+                "[NodeService] Error decoding URL part:",
+                lastPart,
+                e
+            );
+            // Fallback or re-throw if critical, for now, proceed with potentially partially decoded.
+        }
+
+        // Ensure any literal '%7C' or '%7c' that might not have been caught by decodeURIComponent
+        // (e.g. if it was double encoded or if decodeURIComponent had issues) are replaced.
+        // This is more of a safeguard.
+        decoded = decoded.replace(/%7C/gi, "|");
+
+        return decoded;
+    }
+
+    /**
+     * Gets the current user's root node ID.
+     * This ID is derived from a conventional URL structure.
+     * @returns The user's root node ID string.
+     * @throws Error if currentUserId or baseNodeUrl is not set.
+     */
+    getUserRootNodeId(): string {
+        if (!this.currentUserId) {
+            throw new NodeOperationError(
+                "Current User ID is not set. Cannot determine root node ID.",
+                "unknown", // No specific node ID applies here
+                500,
+                "User ID not available"
+            );
+        }
+        if (!this.config.baseNodeUrl) {
+            throw new NodeOperationError(
+                "Base Node URL is not configured. Cannot determine root node ID.",
+                "unknown",
+                500,
+                "Base Node URL not available"
+            );
+        }
+
+        // Construct the specific URL format from which the root node ID is parsed.
+        // Example: https://mew-edge.ideaflow.app/g/all/global-root-to-users/all/users-to-user-relation-id-auth0|userID/user-root-id-auth0|userID
+        const userRootNodeUrl = `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-${this.currentUserId}/user-root-id-${this.currentUserId}`;
+
+        console.error(
+            "[NodeService] Constructed userRootNodeUrl:",
+            userRootNodeUrl
+        ); // For debugging
+
+        try {
+            return NodeService.parseUserRootNodeIdFromUrl(userRootNodeUrl);
+        } catch (error) {
+            console.error(
+                "[NodeService] Failed to parse user root node ID from URL:",
+                userRootNodeUrl,
+                error
+            );
+            // Re-throw as a NodeOperationError or a more specific error type if desired.
+            throw new NodeOperationError(
+                `Failed to parse user root node ID from URL: ${error instanceof Error ? error.message : String(error)}`,
+                "unknown",
+                500,
+                `URL: ${userRootNodeUrl}`
+            );
+        }
     }
 }

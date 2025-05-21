@@ -82,4 +82,18 @@ export declare class NodeService extends AuthService {
      * @returns The full URL to view the node in the Mew web interface
      */
     getNodeUrl(nodeId: string): string;
+    /**
+     * Parses the user root node ID from a specially formatted URL.
+     * @param url The user root node URL.
+     * @returns The extracted user root node ID.
+     * @throws Error if the URL format is invalid.
+     */
+    private static parseUserRootNodeIdFromUrl;
+    /**
+     * Gets the current user's root node ID.
+     * This ID is derived from a conventional URL structure.
+     * @returns The user's root node ID string.
+     * @throws Error if currentUserId or baseNodeUrl is not set.
+     */
+    getUserRootNodeId(): string;
 }
