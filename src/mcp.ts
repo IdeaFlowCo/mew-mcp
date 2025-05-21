@@ -1,7 +1,4 @@
-const CACHE_BUSTER_VERSION = "v20250520_184700"; // Timestamp based
-console.error(
-    `[Mew MCP] [mcp.ts] Script execution started. CACHE_BUSTER: ${CACHE_BUSTER_VERSION}`
-); // DEBUG
+console.error("[Mew MCP] [mcp.ts] Script execution started."); // DEBUG
 
 import { startMCP } from "./core/start.js";
 
