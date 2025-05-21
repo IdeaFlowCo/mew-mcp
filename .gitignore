@@ -1,1 +1,5 @@
 .env
+
+# Ignore dependencies and built output
+node_modules
+/dist
