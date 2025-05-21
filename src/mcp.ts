@@ -1,101 +1,151 @@
 #!/usr/bin/env node
 console.error("[Mew MCP] [mcp.ts] Script execution started."); // DEBUG
 
-import { startMCP } from "./core/start.js";
+import dotenv from "dotenv";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { z } from "zod";
+import { NodeService } from "./api/nodes.js";
+import type { MCPConfig } from "./types/node.js";
 
-// Port can also be loaded from .env if desired, e.g., process.env.PORT
-const port = parseInt(process.env.PORT || "8080", 10);
-console.error(`[Mew MCP] [mcp.ts] Port configured: ${port}`); // DEBUG
+// Load environment variables
+dotenv.config();
+console.error("[Mew MCP] [mcp.ts] Environment variables loaded");
 
-function main() {
-    console.error("[Mew MCP] [mcp.ts] main() function: Entered"); // DEBUG
-    console.error("[Mew MCP] Executing main function...");
-    console.error("[Mew MCP] Starting MCP server...");
-    try {
-        console.error(
-            "[Mew MCP] [mcp.ts] main() function: Calling startMCP..."
-        ); // DEBUG
-        startMCP({
-            port: port,
-            // configPath is no longer passed
-        });
-        console.error(
-            `[Mew MCP] Server init function called, listening on port ${port}`
-        );
-        console.error(
-            "[Mew MCP] [mcp.ts] main() function: startMCP call completed."
-        ); // DEBUG
-    } catch (error: any) {
-        // Added type annotation for error
-        console.error(
-            "[Mew MCP] CRITICAL: Failed to start MCP server in main():",
-            error
-        );
-        console.error("[Mew MCP] CRITICAL: Error Name:", error.name);
-        console.error("[Mew MCP] CRITICAL: Error Message:", error.message);
-        console.error("[Mew MCP] CRITICAL: Error Stack:", error.stack);
-        process.exit(1); // Exit if server fails to start
-    }
-}
-
-console.error("[Mew MCP] [mcp.ts] Calling main()..."); // DEBUG
-try {
-    main();
+const requiredEnvVars = [
+    "BASE_URL",
+    "BASE_NODE_URL",
+    "AUTH0_DOMAIN",
+    "AUTH0_CLIENT_ID",
+    "AUTH0_CLIENT_SECRET",
+    "AUTH0_AUDIENCE",
+    "CURRENT_USER_ID",
+];
+const missing = requiredEnvVars.filter((v) => !process.env[v]);
+if (missing.length) {
     console.error(
-        "[Mew MCP] [mcp.ts] main() call completed successfully (synchronous part)."
-    ); // DEBUG
-} catch (e) {
-    console.error(
-        "[Mew MCP] [mcp.ts] CRITICAL SYNCHRONOUS ERROR IN MAIN EXECUTION:",
-        e
+        "[Mew MCP] [mcp.ts] Missing environment variables:",
+        missing.join(", ")
     );
-    if (e instanceof Error) {
-        console.error("[Mew MCP] [mcp.ts] Main Exec Error Name:", e.name);
-        console.error("[Mew MCP] [mcp.ts] Main Exec Error Message:", e.message);
-        console.error("[Mew MCP] [mcp.ts] Main Exec Error Stack:", e.stack);
-    }
     process.exit(1);
 }
-console.error("[Mew MCP] [mcp.ts] main() call completed (after try-catch)."); // DEBUG
 
-process.on("uncaughtException", (error) => {
-    console.error("[Mew MCP] [mcp.ts] uncaughtException HANDLER ENTERED."); // Simplest possible first log
-    console.error("[Mew MCP] [mcp.ts] Uncaught Exception object:", error); // Log the raw object
-    // Fallback logging if properties are missing
-    const name =
-        error && typeof error === "object" && "name" in error
-            ? String(error.name)
-            : "N/A";
-    const message =
-        error && typeof error === "object" && "message" in error
-            ? String(error.message)
-            : "N/A";
-    const stack =
-        error && typeof error === "object" && "stack" in error
-            ? String(error.stack)
-            : "N/A";
-    console.error(
-        `[Mew MCP] [mcp.ts] Uncaught Exception Details: Name: ${name}, Message: ${message}`
-    );
-    console.error("[Mew MCP] [mcp.ts] Uncaught Exception Stack:", stack);
+const mcpConfig: MCPConfig = {
+    baseUrl: process.env.BASE_URL!,
+    baseNodeUrl: process.env.BASE_NODE_URL!,
+    auth0Domain: process.env.AUTH0_DOMAIN!,
+    auth0ClientId: process.env.AUTH0_CLIENT_ID!,
+    auth0ClientSecret: process.env.AUTH0_CLIENT_SECRET!,
+    auth0Audience: process.env.AUTH0_AUDIENCE!,
+};
+const currentUserId = process.env.CURRENT_USER_ID!;
+
+const nodeService = new NodeService(mcpConfig);
+nodeService.setCurrentUserId(currentUserId);
+
+// Create the MCP server
+const server = new McpServer({ name: "mew-mcp", version: "1.0.1" });
+
+// Tools
+server.tool("getCurrentUser", {}, async () => ({
+    content: [
+        { type: "text", text: JSON.stringify(nodeService.getCurrentUser()) },
+    ],
+}));
+
+server.tool(
+    "findNodeByText",
+    { parentNodeId: z.string(), nodeText: z.string() },
+    async ({ parentNodeId, nodeText }) => {
+        const result = await nodeService.findNodeByText({
+            parentNodeId,
+            nodeText,
+        });
+        return {
+            content: [{ type: "text", text: JSON.stringify(result || null) }],
+        };
+    }
+);
+
+server.tool(
+    "getChildNodes",
+    { parentNodeId: z.string() },
+    async ({ parentNodeId }) => {
+        const result = await nodeService.getChildNodes({ parentNodeId });
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+);
+
+server.tool(
+    "getLayerData",
+    { objectIds: z.array(z.string()) },
+    async ({ objectIds }) => {
+        const result = await nodeService.getLayerData(objectIds);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+);
+
+server.tool(
+    "updateNode",
+    { nodeId: z.string(), updates: z.record(z.any()) },
+    async ({ nodeId, updates }) => {
+        await nodeService.updateNode(nodeId, updates);
+        return {
+            content: [
+                { type: "text", text: JSON.stringify({ success: true }) },
+            ],
+        };
+    }
+);
+
+server.tool("deleteNode", { nodeId: z.string() }, async ({ nodeId }) => {
+    await nodeService.deleteNode(nodeId);
+    return {
+        content: [{ type: "text", text: JSON.stringify({ success: true }) }],
+    };
+});
+
+server.tool(
+    "addNode",
+    {
+        content: z.record(z.any()),
+        parentNodeId: z.string().optional(),
+        relationLabel: z.string().optional(),
+        isChecked: z.boolean().optional(),
+        authorId: z.string().optional(),
+    },
+    async (params) => {
+        const result = await nodeService.addNode(params as any);
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+    }
+);
+
+server.tool("getNodeUrl", { nodeId: z.string() }, async ({ nodeId }) => {
+    const url = nodeService.getNodeUrl(nodeId);
+    return { content: [{ type: "text", text: JSON.stringify({ url }) }] };
+});
+
+server.tool("getUserRootNodeId", {}, async () => {
+    const rootNodeId = nodeService.getUserRootNodeId();
+    return {
+        content: [{ type: "text", text: JSON.stringify({ rootNodeId }) }],
+    };
+});
+
+// Start stdio transport
+const transport = new StdioServerTransport();
+console.error("[Mew MCP] [mcp.ts] Connecting stdio transport...");
+server.connect(transport).catch((err) => {
+    console.error("[Mew MCP] [mcp.ts] Transport error:", err);
     process.exit(1);
 });
 
-process.on("unhandledRejection", (reason, promise) => {
-    console.error("[Mew MCP] [mcp.ts] unhandledRejection HANDLER ENTERED."); // Simplest possible first log
-    console.error("[Mew MCP] [mcp.ts] Unhandled Rejection Reason:", reason);
-    console.error("[Mew MCP] [mcp.ts] Unhandled Rejection Promise:", promise);
-    // If reason is an Error object, log its stack as well
-    if (reason instanceof Error) {
-        console.error(
-            "[Mew MCP] [mcp.ts] Unhandled Rejection Reason Stack:",
-            reason.stack
-        );
-    } else {
-        console.error(
-            "[Mew MCP] [mcp.ts] Unhandled Rejection Reason (not an Error instance):",
-            String(reason)
-        );
-    }
+// Global error handlers
+process.on("uncaughtException", (e) => {
+    console.error("[Mew MCP] uncaughtException:", e);
+    process.exit(1);
+});
+process.on("unhandledRejection", (r) => {
+    console.error("[Mew MCP] unhandledRejection:", r);
     process.exit(1);
 });

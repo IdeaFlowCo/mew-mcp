@@ -66,16 +66,34 @@ export function startMCP({ port }) {
             currentUserId: nodeService.getCurrentUser().id,
         });
     });
-    app.post("/initialize", asyncHandler(async (_req, res) => {
+    app.post("/initialize", asyncHandler(async (req, res) => {
+        // Changed _req to req
         console.error("[Mew MCP] [core/start] /initialize handler: Entered"); // Added for debugging
         try {
-            console.error("[Mew MCP] [core/start] /initialize called.");
-            // For now, just acknowledge. Implement actual initialization if needed.
-            res.json({
-                success: true,
-                currentUserId: nodeService.getCurrentUser().id,
-            });
-            console.error("[Mew MCP] [core/start] /initialize handler: Successfully processed and response sent."); // Added for debugging
+            console.error("[Mew MCP] [core/start] /initialize called. Full Request body:", // More specific log
+            JSON.stringify(req.body, null, 2) // Stringify for better visibility
+            );
+            const requestId = req.body && req.body.id !== undefined ? req.body.id : null; // Safer access to id
+            console.error("[Mew MCP] [core/start] /initialize extracted request ID:", requestId);
+            // MCP initialize response
+            const response = {
+                jsonrpc: "2.0",
+                id: requestId, // Use the safely extracted ID
+                result: {
+                    capabilities: {
+                    // Define your server's capabilities here
+                    // For example:
+                    // "fileSystemAccess": true,
+                    // "commandExecution": true
+                    },
+                    serverInfo: {
+                        name: "mew-mcp",
+                        version: "1.0.1",
+                    },
+                },
+            };
+            res.json(response);
+            console.error("[Mew MCP] [core/start] /initialize handler: Successfully processed and MCP compliant response sent."); // Added for debugging
         }
         catch (error) {
             console.error("[Mew MCP] [core/start] /initialize handler: CRITICAL ERROR caught:", error);
