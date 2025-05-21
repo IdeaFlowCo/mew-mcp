@@ -492,7 +492,7 @@ export class NodeService extends AuthService {
             updates: updates,
         };
 
-        console.log(
+        console.error(
             "[NodeService] addNode /sync payload:",
             JSON.stringify(payload, null, 2)
         );
@@ -547,7 +547,7 @@ export class NodeService extends AuthService {
             );
             return `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-unknown/user-root-id-unknown`;
         }
-        return `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-${this.currentUserId}/user-root-id-${this.currentUserId}/node-${nodeId}`;
+        return `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-${encodeURIComponent(this.currentUserId)}/user-root-id-${encodeURIComponent(this.currentUserId)}/node-${encodeURIComponent(nodeId)}`;
     }
 
     /**
@@ -621,12 +621,12 @@ export class NodeService extends AuthService {
 
         // Construct the specific URL format from which the root node ID is parsed.
         // Example: https://mew-edge.ideaflow.app/g/all/global-root-to-users/all/users-to-user-relation-id-auth0|userID/user-root-id-auth0|userID
-        const userRootNodeUrl = `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-${this.currentUserId}/user-root-id-${this.currentUserId}`;
-
+        const encodedUserId = encodeURIComponent(this.currentUserId);
+        const userRootNodeUrl = `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-${encodedUserId}/user-root-id-${encodedUserId}`;
         console.error(
             "[NodeService] Constructed userRootNodeUrl:",
             userRootNodeUrl
-        ); // For debugging
+        );
 
         try {
             return NodeService.parseUserRootNodeIdFromUrl(userRootNodeUrl);

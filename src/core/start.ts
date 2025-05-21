@@ -89,6 +89,15 @@ export function startMCP({ port }: StartMCPParams): void {
     };
 
     const currentUserIdFromEnv = process.env.CURRENT_USER_ID!;
+    console.error(
+        `[Mew MCP] [core/start.ts] Value of CURRENT_USER_ID from env: "${currentUserIdFromEnv}"`
+    );
+    if (!currentUserIdFromEnv.includes("|")) {
+        console.error(
+            `[Mew MCP] [core/start.ts] CURRENT_USER_ID "${currentUserIdFromEnv}" is missing an auth provider prefix (e.g. "auth0|..."). Please set it to the full Auth0 user ID.`
+        );
+        process.exit(1);
+    }
 
     console.error(
         "[Mew MCP] [core/start.ts] startMCP() function: Initializing NodeService..."
