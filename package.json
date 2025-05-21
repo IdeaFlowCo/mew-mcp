@@ -10,7 +10,7 @@
     },
     "scripts": {
         "prebuild": "mkdir -p dist && rm -rf dist/*",
-        "build": "esbuild src/mcp.ts --bundle --outfile=dist/mcp.bundle.js --platform=node --format=esm --external:express --external:node-fetch --external:dotenv && tsc --emitDeclarationOnly",
+        "build": "esbuild src/mcp.ts --bundle --outfile=dist/mcp.bundle.js --platform=node --format=esm && tsc --emitDeclarationOnly",
         "start:mcp": "node dist/mcp.js",
         "test": "jest",
         "lint": "eslint src/**/*.ts",
