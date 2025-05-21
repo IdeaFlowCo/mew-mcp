@@ -1,37 +1,10 @@
-const SCRIPT_VERSION_ID = `mcp-ts-run-${Date.now()}`; // Unique ID for this run
-console.error(
-    `[Mew MCP] [mcp.ts] Script execution started. Version ID: ${SCRIPT_VERSION_ID}`
-); // DEBUG
+console.error("[Mew MCP] [mcp.ts] Script execution started."); // DEBUG
 
 import { startMCP } from "./core/start.js";
 
-// Log environment variables
-console.error("[Mew MCP] [mcp.ts] Checking Environment Variables:");
-console.error(`[Mew MCP] [mcp.ts] PORT (raw): ${process.env.PORT}`);
+// Port can also be loaded from .env if desired, e.g., process.env.PORT
 const port = parseInt(process.env.PORT || "8080", 10);
-console.error(`[Mew MCP] [mcp.ts] Port configured (parsed): ${port}`); // DEBUG
-console.error(
-    `[Mew MCP] [mcp.ts] CURRENT_USER_ID: ${process.env.CURRENT_USER_ID || "NOT SET"}`
-);
-console.error(
-    `[Mew MCP] [mcp.ts] BASE_URL: ${process.env.BASE_URL || "NOT SET"}`
-);
-console.error(
-    `[Mew MCP] [mcp.ts] BASE_NODE_URL: ${process.env.BASE_NODE_URL || "NOT SET"}`
-);
-console.error(
-    `[Mew MCP] [mcp.ts] AUTH0_DOMAIN: ${process.env.AUTH0_DOMAIN ? "SET" : "NOT SET"}`
-);
-console.error(
-    `[Mew MCP] [mcp.ts] AUTH0_CLIENT_ID: ${process.env.AUTH0_CLIENT_ID ? "SET" : "NOT SET"}`
-);
-console.error(
-    `[Mew MCP] [mcp.ts] AUTH0_CLIENT_SECRET: ${process.env.AUTH0_CLIENT_SECRET ? "SET (sensitive)" : "NOT SET"}`
-);
-console.error(
-    `[Mew MCP] [mcp.ts] AUTH0_AUDIENCE: ${process.env.AUTH0_AUDIENCE ? "SET" : "NOT SET"}`
-);
-console.error("[Mew MCP] [mcp.ts] --- End of Environment Variables ---");
+console.error(`[Mew MCP] [mcp.ts] Port configured: ${port}`); // DEBUG
 
 function main() {
     console.error("[Mew MCP] [mcp.ts] main() function: Entered"); // DEBUG
