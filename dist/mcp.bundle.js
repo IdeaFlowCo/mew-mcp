@@ -23681,7 +23681,70 @@ var require_express = __commonJS({
   "node_modules/express/lib/express.js"(exports, module) {
     "use strict";
     var bodyParser = require_body_parser();
-    var EventEmitter = __require("events").EventEmitter;
+    var EventEmitter;
+    try {
+      EventEmitter = __require("events").EventEmitter;
+    } catch (e2) {
+      console.error('[Mew MCP] [express-patch] Failed to require("events").EventEmitter. Using basic polyfill. Error: ' + (e2.message || e2));
+      EventEmitter = function() {
+        this._events = {};
+      };
+      EventEmitter.prototype.on = function(event, listener) {
+        if (!this._events[event]) {
+          this._events[event] = [];
+        }
+        this._events[event].push(listener);
+      };
+      EventEmitter.prototype.emit = function(event) {
+        var listeners = this._events[event];
+        if (listeners) {
+          var args = Array.prototype.slice.call(arguments, 1);
+          for (var i2 = 0; i2 < listeners.length; i2++) {
+            try {
+              listeners[i2].apply(this, args);
+            } catch (err) {
+              console.error("[Mew MCP] [express-patch] Error in polyfilled EventEmitter listener:", err);
+            }
+          }
+          return true;
+        }
+        return false;
+      };
+      EventEmitter.prototype.once = function(event, listener) {
+        var self2 = this;
+        function onceListener() {
+          self2.removeListener(event, onceListener);
+          listener.apply(this, arguments);
+        }
+        onceListener.listener = listener;
+        this.on(event, onceListener);
+      };
+      EventEmitter.prototype.removeListener = function(event, listener) {
+        if (this._events[event]) {
+          var listeners = this._events[event];
+          for (var i2 = listeners.length - 1; i2 >= 0; i2--) {
+            if (listeners[i2] === listener || listeners[i2].listener === listener) {
+              listeners.splice(i2, 1);
+              if (!listeners.length) delete this._events[event];
+              break;
+            }
+          }
+        }
+      };
+      EventEmitter.prototype.removeAllListeners = function(event) {
+        if (event) {
+          delete this._events[event];
+        } else {
+          this._events = {};
+        }
+      };
+      EventEmitter.prototype.listeners = function(event) {
+        return this._events[event] ? this._events[event].slice() : [];
+      };
+      EventEmitter.prototype.listenerCount = function(event) {
+        return this._events[event] ? this._events[event].length : 0;
+      };
+    }
     var mixin = require_merge_descriptors();
     var proto = require_application();
     var Route = require_route();
