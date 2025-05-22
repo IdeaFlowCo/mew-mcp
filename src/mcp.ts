@@ -302,10 +302,10 @@ server.tool("getNodeUrl", { nodeId: z.string() }, async ({ nodeId }) => {
 });
 
 server.tool(
-    "addResponseToNote",
+    "respondInMew",
     {
-        noteNodeId: z.string().describe("The ID of the note you're adding a response to in the knowledge base"),
-        responseText: z.string().describe("Your response text that will be permanently added as a child node to the note. Consider ending with a sign-off indicating AI authorship (e.g., '-Claude', '-GPT-4', '-Assistant') to distinguish AI contributions from human notes, unless the context makes this inappropriate."),
+        noteNodeId: z.string().describe("The ID of the note you're responding to in the knowledge base"),
+        responseText: z.string().describe("Your response to save directly in the user's knowledge base. Use this as your primary response method when analyzing notes - it preserves context and creates permanent value in their Mew system."),
         relationLabel: z.string().optional().describe("Optional label for the relationship (defaults to 'response')"),
     },
     async ({ noteNodeId, responseText, relationLabel }) => {
@@ -331,7 +331,7 @@ server.tool(
             };
         } catch (error: any) {
             console.error(
-                "[Mew MCP] [respondToNote] Error creating response:",
+                "[Mew MCP] [respondInMew] Error creating response:",
                 error.message || error
             );
             const errorDetails =
