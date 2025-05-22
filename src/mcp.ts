@@ -93,9 +93,26 @@ server.tool("getCurrentUser", {}, async () => ({
     ],
 }));
 
+server.tool("getUserNotesRootId", {}, async () => ({
+    content: [
+        {
+            type: "text",
+            text: JSON.stringify({
+                rootNodeId: nodeService.getCurrentUserRootNodeId(),
+            }),
+        },
+    ],
+}));
+
 server.tool(
     "findNodeByText",
-    { parentNodeId: z.string(), nodeText: z.string() },
+    { 
+        parentNodeId: z.string().describe("The ID of the parent node to search within"), 
+        nodeText: z.string().describe("The exact text to search for")
+    },
+    {
+        description: "Find a child node with exact text match under a parent. The found node may have its own children that are only visible via getChildNodes calls."
+    },
     async ({ parentNodeId, nodeText }) => {
         const result = await nodeService.findNodeByText({
             parentNodeId,
@@ -109,21 +126,18 @@ server.tool(
 
 server.tool(
     "getChildNodes",
-    { parentNodeId: z.string() },
+    { 
+        parentNodeId: z.string().describe("The ID of the parent node to get children for")
+    },
+    {
+        description: "Get direct child nodes of a parent node with hierarchy metadata. Each child includes hasChildren, childCount, and explorationRecommended flags to help you understand which nodes have deeper structure worth exploring. Use this to efficiently navigate the knowledge base hierarchy."
+    },
     async ({ parentNodeId }) => {
         const result = await nodeService.getChildNodes({ parentNodeId });
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
     }
 );
 
-server.tool(
-    "getLayerData",
-    { objectIds: z.array(z.string()) },
-    async ({ objectIds }) => {
-        const result = await nodeService.getLayerData(objectIds);
-        return { content: [{ type: "text", text: JSON.stringify(result) }] };
-    }
-);
 
 server.tool(
     "updateNode",
@@ -285,6 +299,162 @@ server.tool(
 server.tool("getNodeUrl", { nodeId: z.string() }, async ({ nodeId }) => {
     const url = nodeService.getNodeUrl(nodeId);
     return { content: [{ type: "text", text: JSON.stringify({ url }) }] };
+});
+
+server.tool(
+    "addResponseToNote",
+    {
+        noteNodeId: z.string().describe("The ID of the note you're adding a response to in the knowledge base"),
+        responseText: z.string().describe("Your response text that will be permanently added as a child node to the note. Consider ending with a sign-off indicating AI authorship (e.g., '-Claude', '-GPT-4', '-Assistant') to distinguish AI contributions from human notes, unless the context makes this inappropriate."),
+        relationLabel: z.string().optional().describe("Optional label for the relationship (defaults to 'response')"),
+    },
+    async ({ noteNodeId, responseText, relationLabel }) => {
+        try {
+            const result = await nodeService.addNode({
+                content: { type: NodeContentType.Text, text: responseText },
+                parentNodeId: noteNodeId,
+                relationLabel: relationLabel || "response",
+            });
+            
+            // Generate URL for the created response
+            const responseUrl = nodeService.getNodeUrl(result.newNodeId);
+            
+            return {
+                content: [{ 
+                    type: "text", 
+                    text: JSON.stringify({
+                        ...result,
+                        responseUrl,
+                        message: "Response permanently added to the note in your knowledge base. Consider sharing the responseUrl with the user so they can view it directly in Mew."
+                    })
+                }],
+            };
+        } catch (error: any) {
+            console.error(
+                "[Mew MCP] [respondToNote] Error creating response:",
+                error.message || error
+            );
+            const errorDetails =
+                error instanceof NodeOperationError
+                    ? error.details
+                    : error.message || "Unknown error";
+            const errorStatus =
+                error instanceof NodeOperationError ? error.status : 500;
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            error: `Failed to add response to note: ${error.message}`,
+                            details: errorDetails,
+                            status: errorStatus,
+                        }),
+                    },
+                ],
+                isError: true,
+            };
+        }
+    }
+);
+
+server.tool(
+    "getUserNotes", 
+    {}, 
+    {
+        description: "Get all top-level notes from the user's knowledge base. Each note may have children (sub-notes, responses, etc.) that are only visible via additional getChildNodes calls. Consider exploring interesting notes deeper before responding."
+    },
+    async () => {
+    try {
+        const rootId = nodeService.getCurrentUserRootNodeId();
+        const { childNodes } = await nodeService.getChildNodes({ parentNodeId: rootId });
+        
+        const validNodes = childNodes.filter(node => node && node.id);
+        
+        if (validNodes.length === 0) {
+            return {
+                content: [{ 
+                    type: "text", 
+                    text: JSON.stringify({
+                        rootNodeId: rootId,
+                        notes: [],
+                        totalCount: 0,
+                        message: "No notes found in your knowledge base."
+                    })
+                }],
+            };
+        }
+        
+        // Bulk fetch all node data and their relationships in one call
+        const allNodeIds = validNodes.map(node => node.id);
+        const layerData = await nodeService.getLayerData(allNodeIds);
+        
+        // Count children for each node by parsing relationships
+        const childCounts = new Map<string, number>();
+        
+        // Iterate through all relations to count children
+        Object.values(layerData.data.relationsById || {}).forEach((relation: any) => {
+            if (relation && 
+                relation.relationTypeId === "child" && 
+                relation.fromId && 
+                relation.toId &&
+                allNodeIds.includes(relation.fromId)) {
+                
+                const currentCount = childCounts.get(relation.fromId) || 0;
+                childCounts.set(relation.fromId, currentCount + 1);
+            }
+        });
+        
+        // Build enhanced notes with child metadata
+        const notesWithMetadata = validNodes.map(node => {
+            const childCount = childCounts.get(node.id) || 0;
+            
+            return {
+                id: node.id,
+                text: node?.content?.[0]?.value || 'No text content',
+                createdAt: node.createdAt,
+                updatedAt: node.updatedAt,
+                hasChildren: childCount > 0,
+                childCount: childCount,
+                explorationRecommended: childCount > 0
+            };
+        });
+        
+        return {
+            content: [{ 
+                type: "text", 
+                text: JSON.stringify({
+                    rootNodeId: rootId,
+                    notes: notesWithMetadata,
+                    totalCount: notesWithMetadata.length,
+                    message: "Each note may have children (sub-notes, responses, etc.). Use getChildNodes to explore notes with hasChildren=true before responding."
+                })
+            }],
+        };
+    } catch (error: any) {
+        console.error(
+            "[Mew MCP] [getUserNotes] Error:",
+            error.message || error
+        );
+        const errorDetails =
+            error instanceof NodeOperationError
+                ? error.details
+                : error.message || "Unknown error";
+        const errorStatus =
+            error instanceof NodeOperationError ? error.status : 500;
+        return {
+            content: [
+                {
+                    type: "text",
+                    text: JSON.stringify({
+                        error: `Failed to get user notes: ${error.message}`,
+                        details: errorDetails,
+                        status: errorStatus,
+                    }),
+                },
+            ],
+            isError: true,
+        };
+    }
 });
 
 // Start stdio transport

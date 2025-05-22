@@ -88,15 +88,22 @@ export class NodeService extends AuthService {
     }
 
     /**
-     * Retrieves the direct child nodes of a given parent node.
+     * Retrieves the direct child nodes of a given parent node with hierarchy metadata.
      * @param params Object containing parentNodeId
-     * @returns An object containing the parent node data and an array of its direct child nodes
+     * @returns An object containing the parent node data and an array of its direct child nodes with exploration metadata
      */
     async getChildNodes({
         parentNodeId,
     }: {
         parentNodeId: string;
-    }): Promise<{ parentNode: GraphNode; childNodes: GraphNode[] }> {
+    }): Promise<{ 
+        parentNode: GraphNode; 
+        childNodes: Array<GraphNode & {
+            hasChildren: boolean;
+            childCount: number;
+            explorationRecommended: boolean;
+        }>;
+    }> {
         const layerData = await this.getLayerData([parentNodeId]);
         const parentNode = layerData.data.nodesById[parentNodeId];
 
@@ -116,11 +123,50 @@ export class NodeService extends AuthService {
         const childNodes = childRelations.map((relation) => {
             const nodeData = layerData.data.nodesById[relation.toId];
             return nodeData;
-        });
+        }).filter(node => node && node.id); // Filter out undefined nodes
 
+        // If we have child nodes, fetch their child counts in bulk
+        if (childNodes.length > 0) {
+            const childNodeIds = childNodes.map(node => node.id);
+            const childLayerData = await this.getLayerData(childNodeIds);
+            
+            // Count children for each child node by parsing relationships
+            const childCounts = new Map<string, number>();
+            
+            Object.values(childLayerData.data.relationsById || {}).forEach((relation: any) => {
+                if (relation && 
+                    relation.relationTypeId === "child" && 
+                    relation.fromId && 
+                    relation.toId &&
+                    childNodeIds.includes(relation.fromId)) {
+                    
+                    const currentCount = childCounts.get(relation.fromId) || 0;
+                    childCounts.set(relation.fromId, currentCount + 1);
+                }
+            });
+
+            // Build enhanced child nodes with metadata
+            const enhancedChildNodes = childNodes.map(node => {
+                const childCount = childCounts.get(node.id) || 0;
+                
+                return {
+                    ...node,
+                    hasChildren: childCount > 0,
+                    childCount: childCount,
+                    explorationRecommended: childCount > 0
+                };
+            });
+
+            return {
+                parentNode,
+                childNodes: enhancedChildNodes,
+            };
+        }
+
+        // No children case - return empty array with metadata structure
         return {
             parentNode,
-            childNodes,
+            childNodes: [],
         };
     }
 
