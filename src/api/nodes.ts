@@ -101,7 +101,6 @@ export class NodeService extends AuthService {
         childNodes: Array<GraphNode & {
             hasChildren: boolean;
             childCount: number;
-            explorationRecommended: boolean;
         }>;
     }> {
         const layerData = await this.getLayerData([parentNodeId]);
@@ -152,8 +151,7 @@ export class NodeService extends AuthService {
                 return {
                     ...node,
                     hasChildren: childCount > 0,
-                    childCount: childCount,
-                    explorationRecommended: childCount > 0
+                    childCount: childCount
                 };
             });
 

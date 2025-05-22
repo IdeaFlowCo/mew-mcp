@@ -130,7 +130,7 @@ server.tool(
         parentNodeId: z.string().describe("The ID of the parent node to get children for")
     },
     {
-        description: "Get direct child nodes of a parent node with hierarchy metadata. Each child includes hasChildren, childCount, and explorationRecommended flags to help you understand which nodes have deeper structure worth exploring. Use this to efficiently navigate the knowledge base hierarchy."
+        description: "Get direct child nodes of a parent node with hierarchy metadata. Each child includes hasChildren and childCount to help you understand which nodes have deeper structure. Use this to efficiently navigate the knowledge base hierarchy."
     },
     async ({ parentNodeId }) => {
         const result = await nodeService.getChildNodes({ parentNodeId });
