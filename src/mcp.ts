@@ -84,7 +84,11 @@ console.error(
 console.error(`[Mew MCP] [mcp.ts] currentUserId: ${currentUserId}`);
 
 // Create the MCP server
-const server = new McpServer({ name: "mew-mcp", version: "1.0.1" });
+const server = new McpServer({ 
+    name: "mew-mcp", 
+    version: "1.1.17",
+    description: "Mew Knowledge Base - We're creating an ecosystem for humans and machines to work together through a unified tree-structured knowledge graph. Each node can have children, creating hierarchical thought structures. Key collections under user root: My Stream (quick capture repository for loose thoughts that may need sorting into other places, like an infinitely long text file), My Templates (reusable structures), My Favorites (references), My Highlights (content clipped from across the web), My Hashtags (user's tags for organizing related notes). Use respondInMew to add insights directly into the knowledge tree - this creates searchable, linkable knowledge that persists and connects, unlike ephemeral chat responses."
+});
 
 // Tools
 server.tool("getCurrentUser", {}, async () => ({
