@@ -6,7 +6,10 @@ import {
     NodeContentType,
     Relation,
 } from "../types/node.js";
-import { NodeOperationError } from "../types/errors.js";
+import {
+    NodeOperationError,
+    InvalidUserIdFormatError,
+} from "../types/errors.js";
 import { createNodeContent, uuid } from "../utils/content.js";
 import { RequestQueue } from "../utils/queue.js";
 import { AuthService } from "./auth.js";
@@ -24,14 +27,26 @@ export class NodeService extends AuthService {
         super(config);
         this.config = config;
         this.requestQueue = new RequestQueue(10, 100, 50); // 10 batch size, 100ms max delay, 50 req/s rate limit
+        if (!config.userRootNodeId) {
+            throw new Error(
+                "[NodeService] userRootNodeId is not provided in the configuration."
+            );
+        }
     }
 
     /**
      * Sets the User ID for the current session.
-     * @param userId The Mew User ID
+     * @param userId The Mew User ID. Must include an auth provider prefix (e.g., "auth0|..." or "google-oauth2|...").
+     * @throws {InvalidUserIdFormatError} If the userId format is invalid.
      */
     setCurrentUserId(userId: string): void {
+        if (!userId || !userId.includes("|")) {
+            throw new InvalidUserIdFormatError(userId);
+        }
         this.currentUserId = userId;
+        console.error(
+            `[NodeService] Current User ID set to: ${this.currentUserId}`
+        ); // Clearer log to stderr
     }
 
     /**
@@ -40,6 +55,14 @@ export class NodeService extends AuthService {
      */
     getCurrentUser(): { id: string } {
         return { id: this.currentUserId };
+    }
+
+    /**
+     * Gets the configured User Root Node ID.
+     * @returns The user root node ID from the configuration.
+     */
+    getCurrentUserRootNodeId(): string {
+        return this.config.userRootNodeId;
     }
 
     /**
@@ -288,6 +311,10 @@ export class NodeService extends AuthService {
         referenceCanonicalRelationId: string;
         isChecked?: boolean;
     }> {
+        // Log entry into addNode with full input
+        console.error(
+            `[NodeService] addNode called with input: ${JSON.stringify(input)}`
+        );
         const { content, parentNodeId, relationLabel, isChecked, authorId } =
             input;
         const nodeContent = createNodeContent(content);
@@ -487,15 +514,28 @@ export class NodeService extends AuthService {
         const token = await this.getAccessToken();
         const payload = {
             clientId: this.config.auth0ClientId,
-            userId: usedAuthorId, // Removed prefix, using raw usedAuthorId
+            userId: usedAuthorId, // This is the authorId for the transaction
             transactionId: transactionId,
             updates: updates,
         };
 
+        // Detailed logging of payload and computed identifiers
+        const effectiveParentNodeId =
+            parentNodeId ?? this.config.userRootNodeId; // Determine the parent ID being used
         console.error(
-            "[NodeService] addNode /sync payload:",
-            JSON.stringify(payload, null, 2)
+            "[NodeService] Attempting to add node via /sync with payload (raw):",
+            payload
         );
+        console.error(
+            `[NodeService] addNode Details: newNodeId: ${newNodeId}, effectiveParentNodeId: ${effectiveParentNodeId}, usedAuthorId: ${usedAuthorId} (this is the author of the node & transaction). Node content type: ${content.type}`
+        );
+        console.error(
+            `[NodeService] Target Parent Node for new node '${newNodeId}': ${effectiveParentNodeId}. Configured User Root Node ID is: ${this.config.userRootNodeId}. Specified parentNodeId in call was: ${parentNodeId || "not specified (will use default)"}.`
+        );
+        console.error(
+            `[NodeService] Generated URL for new node (if successful) would be: ${this.getNodeUrl(newNodeId)}`
+        );
+
         await this.requestQueue.enqueue(async () => {
             const response = await fetch(`${this.config.baseUrl}/sync`, {
                 method: "POST",
@@ -547,94 +587,46 @@ export class NodeService extends AuthService {
             );
             return `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-unknown/user-root-id-unknown`;
         }
-        return `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-${encodeURIComponent(this.currentUserId)}/user-root-id-${encodeURIComponent(this.currentUserId)}/node-${encodeURIComponent(nodeId)}`;
+        return `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-${encodeURIComponent(this.currentUserId)}/user-root-id-${encodeURIComponent(this.config.userRootNodeId)}/node-${encodeURIComponent(nodeId)}`;
     }
 
     /**
-     * Parses the user root node ID from a specially formatted URL.
-     * @param url The user root node URL.
-     * @returns The extracted user root node ID.
-     * @throws Error if the URL format is invalid.
+     * Parses the node ID from a Mew node URL.
+     * @param url The Mew node URL.
+     * @returns The extracted node ID.
+     * @throws Error if the URL format is invalid or nodeId is not found.
      */
-    private static parseUserRootNodeIdFromUrl(url: string): string {
-        // This regex is specific to the known structure of user root node URLs.
-        // It expects a format like: https://<base>/g/all/global-root-to-users/all/users-to-user-relation-id-<auth0_id>/user-root-id-<auth0_id>
-        const regex = /users-to-user-relation-id-[^\/]+\/user-root-id-[^\/]+$/;
-        if (!regex.test(url)) {
+    static parseNodeIdFromUrl(url: string): string {
+        // Example URL: https://mew-edge.ideaflow.app/g/all/global-root-to-users/all/users-to-user-relation-id-auth0%7Cxxx/user-root-id-auth0%7Cxxx/node-nodeId123
+        const regex = /\/node-([^\/]+)$/; // Matches '/node-' followed by any characters until the end of the string or a slash
+        const match = url.match(regex);
+
+        if (match && match[1]) {
+            // The nodeId is in the first capturing group
+            let decodedNodeId = match[1];
+            try {
+                // Decode URI component to handle any special characters in the nodeId
+                decodedNodeId = decodeURIComponent(decodedNodeId);
+            } catch (e) {
+                console.error(
+                    "[NodeService] Error decoding node ID from URL part:",
+                    match[1],
+                    e
+                );
+                // Fallback to using the raw match if decoding fails, or re-throw
+                // For now, we'll use the raw match as a best effort.
+            }
+            // Additional safety for pipe characters if they were not handled by decodeURIComponent
+            decodedNodeId = decodedNodeId.replace(/%7C/gi, "|");
+            return decodedNodeId;
+        } else {
             console.error(
-                "[NodeService] Invalid user root node URL format for parsing:",
+                "[NodeService] Invalid node URL format or nodeId not found in URL:",
                 url
             );
-            throw new Error("Invalid user root node URL format for parsing.");
-        }
-        const urlParts = url.split("/");
-        const lastPart = urlParts[urlParts.length - 1]; // Should be "user-root-id-..."
-
-        // The user ID (e.g., auth0|xxxx) can contain '|', which gets URL encoded.
-        // We need to decode it properly.
-        // Example lastPart: user-root-id-auth0%7C67b00414a18956f5273397da
-
-        let decoded = lastPart;
-        try {
-            // Full URL decode handles %7C and other potential encodings.
-            decoded = decodeURIComponent(lastPart);
-        } catch (e) {
-            console.error(
-                "[NodeService] Error decoding URL part:",
-                lastPart,
-                e
-            );
-            // Fallback or re-throw if critical, for now, proceed with potentially partially decoded.
-        }
-
-        // Ensure any literal '%7C' or '%7c' that might not have been caught by decodeURIComponent
-        // (e.g. if it was double encoded or if decodeURIComponent had issues) are replaced.
-        // This is more of a safeguard.
-        decoded = decoded.replace(/%7C/gi, "|");
-
-        return decoded;
-    }
-
-    /**
-     * Gets the current user's root node ID by querying the relation from global root.
-     * @returns A promise that resolves to the user's root node ID.
-     * @throws NodeOperationError if currentUserId, baseNodeUrl, or relation data is not available.
-     */
-    async getUserRootNodeId(): Promise<string> {
-        if (!this.currentUserId) {
-            throw new NodeOperationError(
-                "Current User ID is not set. Cannot determine root node ID.",
-                "unknown",
-                500,
-                "User ID not available"
+            throw new Error(
+                "Invalid node URL format or nodeId not found in URL."
             );
         }
-        if (!this.config.baseNodeUrl) {
-            throw new NodeOperationError(
-                "Base Node URL is not configured. Cannot determine root node ID.",
-                "unknown",
-                500,
-                "Base Node URL not available"
-            );
-        }
-
-        // Determine the relation ID for the user's root node under the global root.
-        const encodedUserId = encodeURIComponent(this.currentUserId);
-        const relationId = `users-to-user-relation-id-${encodedUserId}`;
-        // Fetch the relation object from the API
-        const layerData = await this.getLayerData([relationId]);
-        const relation = layerData.data.relationsById[relationId] as
-            | Relation
-            | undefined;
-        if (!relation || !relation.toId) {
-            throw new NodeOperationError(
-                `Failed to fetch user root node ID: missing or invalid relation '${relationId}'.`,
-                relationId,
-                404,
-                JSON.stringify(layerData)
-            );
-        }
-        // The toId of this relation is the actual user root node ID in the graph
-        return relation.toId;
     }
 }

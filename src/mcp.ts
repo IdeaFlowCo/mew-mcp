@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const packageJson = require("../package.json");
+
+console.error(`[Mew MCP] [mcp.ts] Running version: ${packageJson.version}`); // Log version
 console.error("[Mew MCP] [mcp.ts] Script execution started."); // DEBUG
 
 import dotenv from "dotenv";
@@ -6,14 +12,18 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { NodeService } from "./api/nodes.js";
-import type { MCPConfig } from "./types/node.js";
+import {
+    InvalidUserIdFormatError,
+    NodeOperationError,
+} from "./types/errors.js";
+import { NodeContentType, type MCPConfig } from "./types/node.js";
 
 // Load environment variables
 dotenv.config();
 console.error("[Mew MCP] [mcp.ts] Environment variables loaded");
 
 // Cache for the user's root node ID
-let cachedUserRootNodeId: string | null = null;
+// let cachedUserRootNodeId: string | null = null; // Removed, no longer needed
 
 const requiredEnvVars = [
     "BASE_URL",
@@ -40,20 +50,38 @@ const mcpConfig: MCPConfig = {
     auth0ClientId: process.env.AUTH0_CLIENT_ID!,
     auth0ClientSecret: process.env.AUTH0_CLIENT_SECRET!,
     auth0Audience: process.env.AUTH0_AUDIENCE!,
+    userRootNodeId: "user-root-id-" + process.env.CURRENT_USER_ID!,
 };
 const currentUserId = process.env.CURRENT_USER_ID!;
-console.error(
-    `[Mew MCP] [mcp.ts] Value of CURRENT_USER_ID from env: "${currentUserId}"`
-);
-if (!currentUserId.includes("|")) {
-    console.error(
-        `[Mew MCP] [mcp.ts] CURRENT_USER_ID "${currentUserId}" does not include an auth provider prefix (e.g. "auth0|..."). Please set it to the full Auth0 user ID.`
-    );
-    process.exit(1);
-}
 
 const nodeService = new NodeService(mcpConfig);
-nodeService.setCurrentUserId(currentUserId);
+
+try {
+    nodeService.setCurrentUserId(currentUserId);
+} catch (error: any) {
+    if (error instanceof InvalidUserIdFormatError) {
+        console.error(
+            `[Mew MCP] [mcp.ts] CRITICAL STARTUP ERROR: ${error.message}`
+        );
+        console.error(
+            "[Mew MCP] [mcp.ts] Please ensure the CURRENT_USER_ID environment variable is correctly set with an auth provider prefix (e.g., 'auth0|xxx' or 'google-oauth2|yyy')."
+        );
+        process.exit(1);
+    } else {
+        // For any other unexpected errors during setCurrentUserId
+        console.error(
+            "[Mew MCP] [mcp.ts] CRITICAL STARTUP ERROR: Unexpected error setting user ID:",
+            error
+        );
+        process.exit(1);
+    }
+}
+
+// Log configured IDs for debugging
+console.error(
+    `[Mew MCP] [mcp.ts] Configured userRootNodeId: ${mcpConfig.userRootNodeId}`
+);
+console.error(`[Mew MCP] [mcp.ts] currentUserId: ${currentUserId}`);
 
 // Create the MCP server
 const server = new McpServer({ name: "mew-mcp", version: "1.0.1" });
@@ -127,74 +155,52 @@ server.tool(
         authorId: z.string().optional(),
     },
     async (params) => {
-        let { parentNodeId, ...restParams } = params;
+        const { content, parentNodeId, relationLabel, isChecked, authorId } =
+            params;
+        // Log raw incoming parameters for addNode
+        console.error(
+            `[Mew MCP] [addNode] Incoming params: ${JSON.stringify(params)}`
+        );
         let effectiveParentNodeId = parentNodeId;
 
         if (!effectiveParentNodeId) {
             console.error(
-                "[Mew MCP] [addNode] parentNodeId not provided by client. Attempting to use user\'s root node."
+                "[Mew MCP] [addNode] parentNodeId not provided by client. Using currentUserId as root node."
             );
-            if (!cachedUserRootNodeId) {
-                console.error(
-                    "[Mew MCP] [addNode] User root node ID not in cache. Fetching..."
-                );
-                try {
-                    const userRootId = await nodeService.getUserRootNodeId();
-                    if (!userRootId) {
-                        console.error(
-                            "[Mew MCP] [addNode] Failed to fetch user root node ID: nodeService.getUserRootNodeId() returned a falsy value."
-                        );
-                        return {
-                            content: [
-                                {
-                                    type: "text",
-                                    text: JSON.stringify({
-                                        error: "Failed to determine user root node ID to add the node under.",
-                                    }),
-                                },
-                            ],
-                            isError: true,
-                        };
-                    }
-                    cachedUserRootNodeId = userRootId;
+            try {
+                effectiveParentNodeId = nodeService.getCurrentUserRootNodeId();
+
+                if (!effectiveParentNodeId) {
                     console.error(
-                        `[Mew MCP] [addNode] Fetched and cached user root node ID: ${cachedUserRootNodeId}`
-                    );
-                } catch (error: any) {
-                    console.error(
-                        "[Mew MCP] [addNode] Error fetching user root node ID:",
-                        error.message,
-                        error.stack
+                        "[Mew MCP] [addNode] CRITICAL: Configured user root node ID is unexpectedly missing or empty from nodeService.getCurrentUserRootNodeId()."
                     );
                     return {
                         content: [
                             {
                                 type: "text",
                                 text: JSON.stringify({
-                                    error: `Failed to fetch user root node ID: ${error.message}`,
+                                    error: "Failed to determine user root node ID from configuration. It seems to be empty or null.",
                                 }),
                             },
                         ],
                         isError: true,
                     };
                 }
-            } else {
                 console.error(
-                    `[Mew MCP] [addNode] Using cached user root node ID: ${cachedUserRootNodeId}`
+                    `[Mew MCP] [addNode] Using currentUserId as root node ID: ${effectiveParentNodeId}`
                 );
-            }
-            effectiveParentNodeId = cachedUserRootNodeId;
-
-            if (!effectiveParentNodeId) {
+            } catch (error: any) {
                 console.error(
-                    "[Mew MCP] [addNode] Critical: User root node ID could not be determined. Cannot add node as per requirement."
+                    "[Mew MCP] [addNode] Error calling nodeService.getCurrentUserRootNodeId():",
+                    error.message || error
                 );
                 return {
                     content: [
                         {
                             type: "text",
                             text: JSON.stringify({
-                                error: "Failed to determine user root node ID for adding the node. Operation aborted.",
+                                error: "Error obtaining user root node ID from configuration via nodeService.getCurrentUserRootNodeId().",
+                                details: error.message,
                             }),
                         },
                     ],
@@ -203,31 +209,70 @@ server.tool(
             }
         }
 
-        const finalAddNodeParams = {
-            ...restParams,
-            parentNodeId: effectiveParentNodeId,
-        };
-
-        try {
+        if (!effectiveParentNodeId) {
             console.error(
-                `[Mew MCP] [addNode] Calling nodeService.addNode with parentNodeId: ${finalAddNodeParams.parentNodeId}`
-            );
-            const result = await nodeService.addNode(finalAddNodeParams as any);
-            return {
-                content: [{ type: "text", text: JSON.stringify(result) }],
-            };
-        } catch (error: any) {
-            console.error(
-                "[Mew MCP] [addNode] Error calling nodeService.addNode:",
-                error.message,
-                error.stack
+                "[Mew MCP] [addNode] CRITICAL: effectiveParentNodeId could not be determined (either not provided or failed to retrieve from config). Cannot add node."
             );
             return {
                 content: [
                     {
                         type: "text",
                         text: JSON.stringify({
-                            error: `Error in addNode service: ${error.message}`,
+                            error: "Failed to establish a parent node ID for the new node. Parent ID was not provided and could not be retrieved from configuration.",
+                        }),
+                    },
+                ],
+                isError: true,
+            };
+        }
+
+        console.error(
+            `[Mew MCP] [addNode] Proceeding to call nodeService.addNode with effectiveParentNodeId: ${effectiveParentNodeId}, authorId: ${authorId ?? "default (currentUserId)"}`
+        );
+
+        try {
+            // Pass content directly if it matches NodeContent, otherwise wrap it if it's just text like in the log example
+            const nodeContentForService =
+                typeof content.text === "string" &&
+                Object.keys(content).length === 1
+                    ? { type: NodeContentType.Text, text: content.text }
+                    : (content as any); // Cast if `content` is already expected to be NodeContent
+
+            const result = await nodeService.addNode({
+                content: nodeContentForService,
+                parentNodeId: effectiveParentNodeId,
+                relationLabel,
+                isChecked,
+                authorId, // Pass along authorId if provided, NodeService will default to currentUserId if undefined
+            });
+            return {
+                content: [{ type: "text", text: JSON.stringify(result) }],
+            };
+        } catch (error: any) {
+            console.error(
+                "[Mew MCP] [addNode] Error during nodeService.addNode call:",
+                error.message || error,
+                error.stack
+            );
+            const errorDetails =
+                error instanceof NodeOperationError
+                    ? error.details
+                    : error.message || "Unknown error";
+            const errorStatus =
+                error instanceof NodeOperationError ? error.status : 500;
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            error: `Failed to add node: ${error.message}`,
+                            details: errorDetails,
+                            status: errorStatus,
+                            nodeIdAttempted:
+                                error instanceof NodeOperationError &&
+                                error.nodeId
+                                    ? error.nodeId
+                                    : undefined,
                         }),
                     },
                 ],
@@ -240,32 +285,6 @@ server.tool(
 server.tool("getNodeUrl", { nodeId: z.string() }, async ({ nodeId }) => {
     const url = nodeService.getNodeUrl(nodeId);
     return { content: [{ type: "text", text: JSON.stringify({ url }) }] };
-});
-
-server.tool("getUserRootNodeId", {}, async () => {
-    try {
-        const rootNodeId = await nodeService.getUserRootNodeId();
-        return {
-            content: [{ type: "text", text: JSON.stringify({ rootNodeId }) }],
-        };
-    } catch (error: any) {
-        console.error(
-            "[Mew MCP] [getUserRootNodeId Tool] Error:",
-            error.message,
-            error.stack
-        );
-        return {
-            content: [
-                {
-                    type: "text",
-                    text: JSON.stringify({
-                        error: `Failed to get user root node ID: ${error.message}`,
-                    }),
-                },
-            ],
-            isError: true,
-        };
-    }
 });
 
 // Start stdio transport
