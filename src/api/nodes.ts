@@ -631,7 +631,7 @@ export class NodeService extends AuthService {
             );
             return `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-unknown/user-root-id-unknown`;
         }
-        return `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-${encodeURIComponent(this.currentUserId)}/user-root-id-${encodeURIComponent(this.config.userRootNodeId)}/node-${encodeURIComponent(nodeId)}`;
+        return `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-${encodeURIComponent(this.currentUserId)}/user-root-id-${encodeURIComponent(this.currentUserId)}/node-${encodeURIComponent(nodeId)}`;
     }
 
     /**
