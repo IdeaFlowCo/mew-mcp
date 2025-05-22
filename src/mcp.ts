@@ -87,11 +87,42 @@ console.error(`[Mew MCP] [mcp.ts] currentUserId: ${currentUserId}`);
 const server = new McpServer({ name: "mew-mcp", version: "1.0.1" });
 
 // Tools
-server.tool("getCurrentUser", {}, async () => ({
-    content: [
-        { type: "text", text: JSON.stringify(nodeService.getCurrentUser()) },
-    ],
-}));
+server.tool(
+    "getCurrentUser",
+    {
+        description:
+            "Retrieves the authentication ID of the current user. This is typically used for associating actions with a user account or for API authorization, not directly as a graph node ID.",
+        inputSchema: {},
+        outputSchema: z.object({ id: z.string() }),
+    },
+    async () => ({
+        content: [
+            {
+                type: "text",
+                text: JSON.stringify(nodeService.getCurrentUser()),
+            },
+        ],
+    })
+);
+
+server.tool(
+    "getUserNotesRootId",
+    {
+        description:
+            "Retrieves the specific graph node ID for the current user's main notes container or root space. Use this ID as parentNodeId for operations like getChildNodes or addNode to interact with top-level user notes.",
+        inputSchema: {},
+        outputSchema: z.object({ id: z.string() }),
+    },
+    async () => {
+        const userAuthId = nodeService.getCurrentUser().id;
+        const notesRootId = "user-root-id-" + userAuthId;
+        return {
+            content: [
+                { type: "text", text: JSON.stringify({ id: notesRootId }) },
+            ],
+        };
+    }
+);
 
 server.tool(
     "findNodeByText",
