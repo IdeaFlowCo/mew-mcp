@@ -132,18 +132,13 @@ The Mew MCP server relies on the following environment variables:
 The `mew-mcp` server exposes the following tools for interaction:
 
 -   **`getCurrentUser()`**:
-    *   Description: Retrieves the authentication ID of the current user (e.g., `google-oauth2|xxx`). This is typically used for associating actions with a user account or for API authorization, not directly as a graph node ID for parenting notes.
-    *   Input: None
-    *   Returns: `{ id: string }`
--   **`getUserNotesRootId()`**:
-    *   Description: Retrieves the specific graph node ID for the current user's main notes container or root space (e.g., `user-root-id-google-oauth2|xxx`). Use this ID as `parentNodeId` for operations like `getChildNodes` or `addNode` to interact with top-level user notes.
-    *   Input: None
+    *   Description: Retrieves the currently configured user's authentication ID.
     *   Returns: `{ id: string }`
 -   **`findNodeByText({ parentNodeId: string, nodeText: string })`**:
     *   Description: Finds the first child node under a given `parentNodeId` that has an exact text match with `nodeText`.
     *   Returns: The matching `GraphNode` object or `null` if not found.
 -   **`getChildNodes({ parentNodeId: string })`**:
-    *   Description: Retrieves the direct child nodes of a given `parentNodeId`. To list top-level notes, use the ID returned by `getUserNotesRootId()` as the `parentNodeId`.
+    *   Description: Retrieves the direct child nodes of a given `parentNodeId`.
     *   Returns: `{ parentNode: GraphNode, childNodes: GraphNode[] }`
 -   **`getLayerData({ objectIds: string[] })`**:
     *   Description: Fetches detailed data for a list of specified object IDs (nodes or relations).
@@ -157,7 +152,7 @@ The `mew-mcp` server exposes the following tools for interaction:
 -   **`addNode({ content: Record<string, any>, parentNodeId?: string, relationLabel?: string, isChecked?: boolean, authorId?: string })`**:
     *   Description: Adds a new Mew node.
         *   `content`: The content of the new node (e.g., `{ "text": "My new note" }`).
-        *   `parentNodeId` (Optional): The ID of the parent node. If not provided, defaults to the ID returned by `getUserNotesRootId()` (i.e., `"user-root-id-" + CURRENT_USER_ID`).
+        *   `parentNodeId` (Optional): The ID of the parent node. If not provided, defaults to `"user-root-id-" + CURRENT_USER_ID`.
         *   `relationLabel` (Optional): A label for the relationship to the parent.
         *   `isChecked` (Optional): Sets the checked state (e.g., for tasks).
         *   `authorId` (Optional): The author ID for the node. Defaults to the `CURRENT_USER_ID`.

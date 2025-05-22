@@ -87,53 +87,15 @@ console.error(`[Mew MCP] [mcp.ts] currentUserId: ${currentUserId}`);
 const server = new McpServer({ name: "mew-mcp", version: "1.0.1" });
 
 // Tools
-server.tool(
-    "getCurrentUser",
-    {
-        description:
-            "Retrieves the authentication ID of the current user. This is typically used for associating actions with a user account or for API authorization, not directly as a graph node ID.",
-        inputSchema: z.object({}),
-        outputSchema: z.object({ id: z.string() }),
-    },
-    async () => ({
-        content: [
-            {
-                type: "text",
-                text: JSON.stringify(nodeService.getCurrentUser()),
-            },
-        ],
-    })
-);
-
-server.tool(
-    "getUserNotesRootId",
-    {
-        description:
-            "Retrieves the specific graph node ID for the current user's main notes container or root space. Use this ID as parentNodeId for operations like getChildNodes or addNode to interact with top-level user notes.",
-        inputSchema: z.object({}),
-        outputSchema: z.object({ id: z.string() }),
-    },
-    async () => {
-        const userAuthId = nodeService.getCurrentUser().id;
-        const notesRootId = "user-root-id-" + userAuthId;
-        return {
-            content: [
-                { type: "text", text: JSON.stringify({ id: notesRootId }) },
-            ],
-        };
-    }
-);
+server.tool("getCurrentUser", {}, async () => ({
+    content: [
+        { type: "text", text: JSON.stringify(nodeService.getCurrentUser()) },
+    ],
+}));
 
 server.tool(
     "findNodeByText",
-    {
-        description:
-            "Finds a node by its text content under a specific parent node.",
-        inputSchema: z.object({
-            parentNodeId: z.string(),
-            nodeText: z.string(),
-        }),
-    },
+    { parentNodeId: z.string(), nodeText: z.string() },
     async ({ parentNodeId, nodeText }) => {
         const result = await nodeService.findNodeByText({
             parentNodeId,
@@ -147,10 +109,7 @@ server.tool(
 
 server.tool(
     "getChildNodes",
-    {
-        description: "Retrieves the direct child nodes of a given parent node.",
-        inputSchema: z.object({ parentNodeId: z.string() }),
-    },
+    { parentNodeId: z.string() },
     async ({ parentNodeId }) => {
         const result = await nodeService.getChildNodes({ parentNodeId });
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
@@ -159,11 +118,7 @@ server.tool(
 
 server.tool(
     "getLayerData",
-    {
-        description:
-            "Fetches detailed data for a list of specified object IDs (nodes or relations).",
-        inputSchema: z.object({ objectIds: z.array(z.string()) }),
-    },
+    { objectIds: z.array(z.string()) },
     async ({ objectIds }) => {
         const result = await nodeService.getLayerData(objectIds);
         return { content: [{ type: "text", text: JSON.stringify(result) }] };
@@ -172,14 +127,7 @@ server.tool(
 
 server.tool(
     "updateNode",
-    {
-        description:
-            "Updates an existing Mew node with the provided partial data.",
-        inputSchema: z.object({
-            nodeId: z.string(),
-            updates: z.record(z.any()),
-        }),
-    },
+    { nodeId: z.string(), updates: z.record(z.any()) },
     async ({ nodeId, updates }) => {
         await nodeService.updateNode(nodeId, updates);
         return {
@@ -190,34 +138,21 @@ server.tool(
     }
 );
 
-server.tool(
-    "deleteNode",
-    {
-        description: "Deletes a Mew node.",
-        inputSchema: z.object({ nodeId: z.string() }),
-    },
-    async ({ nodeId }) => {
-        await nodeService.deleteNode(nodeId);
-        return {
-            content: [
-                { type: "text", text: JSON.stringify({ success: true }) },
-            ],
-        };
-    }
-);
+server.tool("deleteNode", { nodeId: z.string() }, async ({ nodeId }) => {
+    await nodeService.deleteNode(nodeId);
+    return {
+        content: [{ type: "text", text: JSON.stringify({ success: true }) }],
+    };
+});
 
 server.tool(
     "addNode",
     {
-        description:
-            "Adds a new Mew node, optionally linking it to a parent node.",
-        inputSchema: z.object({
-            content: z.record(z.any()),
-            parentNodeId: z.string().optional(),
-            relationLabel: z.string().optional(),
-            isChecked: z.boolean().optional(),
-            authorId: z.string().optional(),
-        }),
+        content: z.record(z.any()),
+        parentNodeId: z.string().optional(),
+        relationLabel: z.string().optional(),
+        isChecked: z.boolean().optional(),
+        authorId: z.string().optional(),
     },
     async (params) => {
         const { content, parentNodeId, relationLabel, isChecked, authorId } =
@@ -347,17 +282,10 @@ server.tool(
     }
 );
 
-server.tool(
-    "getNodeUrl",
-    {
-        description: "Constructs the web URL for a given Mew node ID.",
-        inputSchema: z.object({ nodeId: z.string() }),
-    },
-    async ({ nodeId }) => {
-        const url = nodeService.getNodeUrl(nodeId);
-        return { content: [{ type: "text", text: JSON.stringify({ url }) }] };
-    }
-);
+server.tool("getNodeUrl", { nodeId: z.string() }, async ({ nodeId }) => {
+    const url = nodeService.getNodeUrl(nodeId);
+    return { content: [{ type: "text", text: JSON.stringify({ url }) }] };
+});
 
 // Start stdio transport
 const transport = new StdioServerTransport();

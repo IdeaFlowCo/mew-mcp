@@ -21,6 +21,31 @@ export interface GraphNode {
     isChecked: boolean | null;
 }
 
+// Zod schema for ContentBlock
+import { z } from "zod";
+
+export const ContentBlockSchema = z.object({
+    type: z.enum(["text", "mention", "replacement"]),
+    value: z.string(),
+    styles: z.number().optional(),
+    mentionTrigger: z.string().optional(),
+});
+
+// Zod schema for GraphNode
+export const GraphNodeSchema = z.object({
+    version: z.number(),
+    id: z.string(),
+    authorId: z.string(),
+    createdAt: z.string(), // Consider z.string().datetime() if Zod version >= 3.22 and format is ISO
+    updatedAt: z.string(), // Consider z.string().datetime() if Zod version >= 3.22 and format is ISO
+    content: z.array(ContentBlockSchema),
+    isPublic: z.boolean(),
+    isNewRelatedObjectsPublic: z.boolean(),
+    relationId: z.string().nullable(),
+    canonicalRelationId: z.string().nullable(),
+    isChecked: z.boolean().nullable(),
+});
+
 /** Represents the structure of a Mew Relation. */
 export interface Relation {
     id: string;
