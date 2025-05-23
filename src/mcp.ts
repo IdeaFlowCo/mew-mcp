@@ -961,6 +961,182 @@ server.tool(
     }
 );
 
+server.tool(
+    "viewTreeContext",
+    {
+        rootNodeId: z.string().describe("The root node ID to build the tree view from (e.g., user root, global root, or any specific node)"),
+        maxDepth: z.number().optional().default(2).describe("Maximum depth to traverse (default: 2 levels)"),
+        maxChildrenPerNode: z.number().optional().default(8).describe("Maximum children to show per node (default: 8)")
+    },
+    {
+        description: "Get a comprehensive tree view of the knowledge graph structure. This tool provides hierarchical context showing the relationships between nodes, perfect for understanding where you are in the overall knowledge base and planning navigation. Takes ~10 seconds but gives rich structural insight."
+    },
+    async ({ rootNodeId, maxDepth = 2, maxChildrenPerNode = 8 }) => {
+        try {
+            console.error(`[Mew MCP] [viewTreeContext] Building tree view from ${rootNodeId}, depth: ${maxDepth}, max children: ${maxChildrenPerNode}`);
+            
+            // Build tree level by level for better performance
+            const buildTreeByLevels = async () => {
+                const nodesByLevel = new Map<number, string[]>();
+                const nodeData = new Map<string, any>();
+                const nodeChildren = new Map<string, any>();
+                
+                // Start with root
+                nodesByLevel.set(0, [rootNodeId]);
+                
+                // Process each level
+                for (let depth = 0; depth <= maxDepth; depth++) {
+                    const currentLevelNodes = nodesByLevel.get(depth) || [];
+                    if (currentLevelNodes.length === 0) break;
+                    
+                    console.error(`[Mew MCP] [viewTreeContext] Processing level ${depth} with ${currentLevelNodes.length} nodes`);
+                    
+                    // Batch get all children for this level
+                    const childPromises = currentLevelNodes.map(async (nodeId) => {
+                        const { childNodes } = await nodeService.getChildNodes({ parentNodeId: nodeId });
+                        const limited = childNodes.slice(0, maxChildrenPerNode);
+                        nodeChildren.set(nodeId, {
+                            limited,
+                            total: childNodes.length,
+                            hasMore: childNodes.length > maxChildrenPerNode
+                        });
+                        return limited.map(child => child.id);
+                    });
+                    
+                    const allChildrenArrays = await Promise.all(childPromises);
+                    const nextLevelNodes = allChildrenArrays.flat();
+                    
+                    if (nextLevelNodes.length > 0 && depth < maxDepth) {
+                        nodesByLevel.set(depth + 1, nextLevelNodes);
+                    }
+                    
+                    // Batch get node data for current level
+                    if (currentLevelNodes.length > 0) {
+                        const layerData = await nodeService.getLayerData(currentLevelNodes);
+                        currentLevelNodes.forEach(nodeId => {
+                            nodeData.set(nodeId, layerData.data.nodesById?.[nodeId]);
+                        });
+                    }
+                }
+                
+                // Build tree structure with depth limit
+                const buildNode = (nodeId: string, depth: number): any => {
+                    const data = nodeData.get(nodeId);
+                    const childInfo = nodeChildren.get(nodeId);
+                    
+                    // Stop recursion at max depth
+                    const children = (depth < maxDepth && childInfo?.limited) 
+                        ? childInfo.limited.map((child: any) => 
+                            buildNode(child.id, depth + 1)
+                          ).filter(Boolean) 
+                        : [];
+                    
+                    return {
+                        id: nodeId,
+                        text: data?.content?.[0]?.value || 'No text content',
+                        createdAt: data?.createdAt,
+                        updatedAt: data?.updatedAt,
+                        depth,
+                        totalChildren: childInfo?.total || 0,
+                        shownChildren: childInfo?.limited?.length || 0,
+                        hasMoreChildren: childInfo?.hasMore || false,
+                        children
+                    };
+                };
+                
+                return buildNode(rootNodeId, 0);
+            };
+
+            console.error(`[Mew MCP] [viewTreeContext] Starting tree traversal...`);
+            const startTime = Date.now();
+            
+            const treeStructure = await buildTreeByLevels();
+            
+            const endTime = Date.now();
+            const duration = endTime - startTime;
+            console.error(`[Mew MCP] [viewTreeContext] Tree built in ${duration}ms`);
+
+            // Create a clean file-tree representation
+            const formatTreeText = (node: any, indent: string = "", isLast: boolean = true): string => {
+                if (!node) return "";
+                
+                // Clean text without truncation for better readability
+                const cleanText = node.text.replace(/\n/g, ' ').trim() || 'Untitled';
+                
+                // Use proper tree characters
+                const connector = isLast ? "└── " : "├── ";
+                const nodeText = `${indent}${connector}${cleanText}${node.totalChildren > 0 ? '/' : ''}\n`;
+                
+                // Format children with proper indentation
+                const childPrefix = indent + (isLast ? "    " : "│   ");
+                const childrenText = node.children
+                    .map((child: any, index: number) => 
+                        formatTreeText(child, childPrefix, index === node.children.length - 1)
+                    )
+                    .join("");
+                
+                return nodeText + childrenText;
+            };
+
+            // Format root specially (no connector)
+            const formatRoot = (node: any): string => {
+                if (!node) return "";
+                const cleanText = node.text.replace(/\n/g, ' ').trim() || 'Root';
+                const rootText = `${cleanText}${node.totalChildren > 0 ? '/' : ''}\n`;
+                const childrenText = node.children
+                    .map((child: any, index: number) => 
+                        formatTreeText(child, "", index === node.children.length - 1)
+                    )
+                    .join("");
+                return rootText + childrenText;
+            };
+            
+            const treeText = formatRoot(treeStructure);
+
+            return {
+                content: [{
+                    type: "text",
+                    text: JSON.stringify({
+                        rootNodeId,
+                        maxDepth,
+                        maxChildrenPerNode,
+                        duration: `${duration}ms`,
+                        treeStructure,
+                        treeText: `Tree View:\n${treeText}`,
+                        message: `Tree context built successfully from ${rootNodeId}. Shows up to ${maxDepth} levels deep with max ${maxChildrenPerNode} children per node. Node IDs are shown in brackets [id] for easy reference. Use this structure to understand the knowledge base layout and plan your navigation.`
+                    })
+                }]
+            };
+
+        } catch (error: any) {
+            console.error(
+                "[Mew MCP] [viewTreeContext] Error building tree:",
+                error.message || error
+            );
+            const errorDetails =
+                error instanceof NodeOperationError
+                    ? error.details
+                    : error.message || "Unknown error";
+            const errorStatus =
+                error instanceof NodeOperationError ? error.status : 500;
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            error: `Failed to build tree context: ${error.message}`,
+                            details: errorDetails,
+                            status: errorStatus,
+                            rootNodeId,
+                        }),
+                    },
+                ],
+                isError: true,
+            };
+        }
+    }
+);
+
 // Start stdio transport
 const transport = new StdioServerTransport();
 console.error("[Mew MCP] [mcp.ts] Connecting stdio transport...");
