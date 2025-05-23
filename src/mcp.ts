@@ -177,9 +177,15 @@ server.tool(
         relationLabel: z.string().optional(),
         isChecked: z.boolean().optional(),
         authorId: z.string().optional(),
+        authorModel: z
+            .enum(["Claude", "ChatGPT", "Grok", "Gemini", "User"])
+            .optional()
+            .describe(
+                "Which AI model is creating this node. Choose 'Claude' if you are Claude, or the appropriate model name. Note: this will override authorId if both are provided."
+            ),
     },
     async (params) => {
-        const { content, parentNodeId, relationLabel, isChecked, authorId } =
+        const { content, parentNodeId, relationLabel, isChecked, authorId, authorModel } =
             params;
         // Log raw incoming parameters for addNode
         console.error(
@@ -250,8 +256,28 @@ server.tool(
             };
         }
 
+        // Map AI model to authorId (same logic as respondInMew)
+        const getAuthorId = (model?: string): string | undefined => {
+            switch (model) {
+                case "Claude":
+                    return "noreply@anthropic.com";
+                case "ChatGPT":
+                    return "noreply@openai.com";
+                case "Grok":
+                    return "noreply@x.ai";
+                case "Gemini":
+                    return "noreply@google.com";
+                case "User":
+                default:
+                    return undefined; // Uses current user ID
+            }
+        };
+
+        // authorModel overrides authorId if both provided
+        const effectiveAuthorId = authorModel ? getAuthorId(authorModel) : authorId;
+
         console.error(
-            `[Mew MCP] [addNode] Proceeding to call nodeService.addNode with effectiveParentNodeId: ${effectiveParentNodeId}, authorId: ${authorId ?? "default (currentUserId)"}`
+            `[Mew MCP] [addNode] Proceeding to call nodeService.addNode with effectiveParentNodeId: ${effectiveParentNodeId}, effectiveAuthorId: ${effectiveAuthorId ?? "default (currentUserId)"}`
         );
 
         try {
@@ -267,7 +293,7 @@ server.tool(
                 parentNodeId: effectiveParentNodeId,
                 relationLabel,
                 isChecked,
-                authorId, // Pass along authorId if provided, NodeService will default to currentUserId if undefined
+                authorId: effectiveAuthorId, // Use mapped authorId from authorModel or original authorId
             });
             return {
                 content: [{ type: "text", text: JSON.stringify(result) }],
@@ -411,13 +437,37 @@ server.tool(
             .describe(
                 "The type of response relationship. Be creative! Examples: 'response' (default), 'rebuttal', 'extension', 'suggestion', 'idea', 'related to', 'builds on', 'challenges', 'clarifies', 'inspiration', 'counterpoint', 'synthesis', 'deep dive', 'alternative view', etc. Choose what best describes your contribution."
             ),
+        authorModel: z
+            .enum(["Claude", "ChatGPT", "Grok", "Gemini", "User"])
+            .optional()
+            .describe(
+                "Which AI model is creating this response. Choose 'Claude' if you are Claude, or the appropriate model name. Defaults to 'User' if not specified."
+            ),
     },
-    async ({ noteNodeId, responseText, relationLabel }) => {
+    async ({ noteNodeId, responseText, relationLabel, authorModel }) => {
         try {
+            // Map AI model to authorId
+            const getAuthorId = (model?: string): string | undefined => {
+                switch (model) {
+                    case "Claude":
+                        return "noreply@anthropic.com";
+                    case "ChatGPT":
+                        return "noreply@openai.com";
+                    case "Grok":
+                        return "noreply@x.ai";
+                    case "Gemini":
+                        return "noreply@google.com";
+                    case "User":
+                    default:
+                        return undefined; // Uses current user ID
+                }
+            };
+
             const result = await nodeService.addNode({
                 content: { type: NodeContentType.Text, text: responseText },
                 parentNodeId: noteNodeId,
                 relationLabel: relationLabel || "response",
+                authorId: getAuthorId(authorModel),
             });
 
             // Generate URL for the created response
