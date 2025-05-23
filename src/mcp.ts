@@ -317,7 +317,7 @@ server.tool(
         mewUrl: z.string().describe("A Mew URL (e.g., https://mew-edge.ideaflow.app/g/...) to extract and analyze the node from")
     },
     {
-        description: "Extract the node ID from a Mew URL and get the node content plus its children. Perfect for when users share Mew links and you want to analyze the content."
+        description: "When you see a Mew URL (eg. mew-edge.ideaflow.app), use this tool to instantly extract and analyze the node content plus its children. Perfect for diving into shared Mew links - just paste the URL and get full node analysis with context."
     },
     async ({ mewUrl }) => {
         try {
