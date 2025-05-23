@@ -92,16 +92,14 @@ export class NodeService extends AuthService {
      * @param params Object containing parentNodeId
      * @returns An object containing the parent node data and an array of its direct child nodes with exploration metadata
      */
-    async getChildNodes({
-        parentNodeId,
-    }: {
-        parentNodeId: string;
-    }): Promise<{ 
-        parentNode: GraphNode; 
-        childNodes: Array<GraphNode & {
-            hasChildren: boolean;
-            childCount: number;
-        }>;
+    async getChildNodes({ parentNodeId }: { parentNodeId: string }): Promise<{
+        parentNode: GraphNode;
+        childNodes: Array<
+            GraphNode & {
+                hasChildren: boolean;
+                childCount: number;
+            }
+        >;
     }> {
         const layerData = await this.getLayerData([parentNodeId]);
         const parentNode = layerData.data.nodesById[parentNodeId];
@@ -119,39 +117,45 @@ export class NodeService extends AuthService {
                 relation.relationTypeId === "child"
         );
 
-        const childNodes = childRelations.map((relation) => {
-            const nodeData = layerData.data.nodesById[relation.toId];
-            return nodeData;
-        }).filter(node => node && node.id); // Filter out undefined nodes
+        const childNodes = childRelations
+            .map((relation) => {
+                const nodeData = layerData.data.nodesById[relation.toId];
+                return nodeData;
+            })
+            .filter((node) => node && node.id); // Filter out undefined nodes
 
         // If we have child nodes, fetch their child counts in bulk
         if (childNodes.length > 0) {
-            const childNodeIds = childNodes.map(node => node.id);
+            const childNodeIds = childNodes.map((node) => node.id);
             const childLayerData = await this.getLayerData(childNodeIds);
-            
+
             // Count children for each child node by parsing relationships
             const childCounts = new Map<string, number>();
-            
-            Object.values(childLayerData.data.relationsById || {}).forEach((relation: any) => {
-                if (relation && 
-                    relation.relationTypeId === "child" && 
-                    relation.fromId && 
-                    relation.toId &&
-                    childNodeIds.includes(relation.fromId)) {
-                    
-                    const currentCount = childCounts.get(relation.fromId) || 0;
-                    childCounts.set(relation.fromId, currentCount + 1);
+
+            Object.values(childLayerData.data.relationsById || {}).forEach(
+                (relation: any) => {
+                    if (
+                        relation &&
+                        relation.relationTypeId === "child" &&
+                        relation.fromId &&
+                        relation.toId &&
+                        childNodeIds.includes(relation.fromId)
+                    ) {
+                        const currentCount =
+                            childCounts.get(relation.fromId) || 0;
+                        childCounts.set(relation.fromId, currentCount + 1);
+                    }
                 }
-            });
+            );
 
             // Build enhanced child nodes with metadata
-            const enhancedChildNodes = childNodes.map(node => {
+            const enhancedChildNodes = childNodes.map((node) => {
                 const childCount = childCounts.get(node.id) || 0;
-                
+
                 return {
                     ...node,
                     hasChildren: childCount > 0,
-                    childCount: childCount
+                    childCount: childCount,
                 };
             });
 
@@ -617,6 +621,136 @@ export class NodeService extends AuthService {
                     : "",
             isChecked: isChecked ?? undefined,
         };
+    }
+
+    /**
+     * Moves a node from one parent to another by updating the parent-child relationship
+     * @param nodeId The ID of the node to move
+     * @param oldParentId The current parent ID
+     * @param newParentId The new parent ID to move the node to
+     */
+    async moveNode(
+        nodeId: string,
+        oldParentId: string,
+        newParentId: string
+    ): Promise<void> {
+        // First, get layer data to find the existing parent-child relation
+        const layerData = await this.getLayerData([oldParentId, nodeId]);
+
+        // Find the relation where oldParentId -> nodeId with relationTypeId "child"
+        const currentRelation = Object.values(
+            layerData.data.relationsById
+        ).find(
+            (relation): relation is any =>
+                relation !== null &&
+                typeof relation === "object" &&
+                "fromId" in relation &&
+                "toId" in relation &&
+                "relationTypeId" in relation &&
+                relation.fromId === oldParentId &&
+                relation.toId === nodeId &&
+                relation.relationTypeId === "child"
+        );
+
+        if (!currentRelation) {
+            throw new Error(
+                `No parent-child relationship found between ${oldParentId} and ${nodeId}`
+            );
+        }
+
+        const relationId = currentRelation.id;
+        const transactionId = uuid();
+        const timestamp = Date.now();
+        const usedAuthorId = this.currentUserId;
+
+        const updates: any[] = [];
+
+        // Update the existing relation to point to the new parent
+        updates.push({
+            operation: "updateRelation",
+            oldProps: {
+                version: currentRelation.version,
+                id: relationId,
+                authorId: currentRelation.authorId,
+                createdAt: currentRelation.createdAt,
+                updatedAt: currentRelation.updatedAt,
+                fromId: oldParentId,
+                toId: nodeId,
+                relationTypeId: "child",
+                isPublic: currentRelation.isPublic,
+                canonicalRelationId: currentRelation.canonicalRelationId,
+            },
+            newProps: {
+                version: currentRelation.version,
+                id: relationId,
+                authorId: currentRelation.authorId,
+                createdAt: currentRelation.createdAt,
+                updatedAt: timestamp,
+                fromId: newParentId,
+                toId: nodeId,
+                relationTypeId: "child",
+                isPublic: currentRelation.isPublic,
+                canonicalRelationId: currentRelation.canonicalRelationId,
+            },
+        });
+
+        // Remove from old parent's relation list
+        updates.push({
+            operation: "updateRelationList",
+            relationId: relationId,
+            oldPosition: { int: timestamp, frac: "a0" },
+            newPosition: null,
+            authorId: usedAuthorId,
+            type: "all",
+            oldIsPublic: true,
+            newIsPublic: true,
+            nodeId: oldParentId,
+            relatedNodeId: nodeId,
+        });
+
+        // Add to new parent's relation list
+        updates.push({
+            operation: "updateRelationList",
+            relationId: relationId,
+            oldPosition: null,
+            newPosition: { int: timestamp, frac: "a0" },
+            authorId: usedAuthorId,
+            type: "all",
+            oldIsPublic: true,
+            newIsPublic: true,
+            nodeId: newParentId,
+            relatedNodeId: nodeId,
+        });
+
+        // Execute the transaction
+        const token = await this.getAccessToken();
+        const payload = {
+            clientId: this.config.auth0ClientId,
+            userId: usedAuthorId,
+            transactionId: transactionId,
+            updates: updates,
+        };
+
+        const txResponse = await fetch(`${this.config.baseUrl}/sync`, {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+
+        if (!txResponse.ok) {
+            const responseText = await txResponse.text();
+            const errMsg = `Failed to move node: Status ${txResponse.status} ${txResponse.statusText}. Response: ${responseText}`;
+            console.error(errMsg);
+            console.error("Request payload was:", payload);
+            throw new Error(errMsg);
+        }
+
+        console.log(
+            `Successfully moved node ${nodeId} from parent ${oldParentId} to parent ${newParentId}`
+        );
     }
 
     /**

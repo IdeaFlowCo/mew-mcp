@@ -185,11 +185,18 @@ server.tool(
             ),
     },
     {
-        description: "Create new structural elements, templates, outlines, or organizational nodes. Typically used for building hierarchies, creating content for users when they explicitly request it, or administrative tasks. Consider using claudeAddThought when you want to share your own thoughts or insights."
+        description:
+            "Create new structural elements, templates, outlines, or organizational nodes. Typically used for building hierarchies, creating content for users when they explicitly request it, or administrative tasks. Consider using claudeAddThought when you want to share your own thoughts or insights.",
     },
     async (params) => {
-        const { content, parentNodeId, relationLabel, isChecked, authorId, authorModel } =
-            params;
+        const {
+            content,
+            parentNodeId,
+            relationLabel,
+            isChecked,
+            authorId,
+            authorModel,
+        } = params;
         // Log raw incoming parameters for addNode
         console.error(
             `[Mew MCP] [addNode] Incoming params: ${JSON.stringify(params)}`
@@ -277,7 +284,9 @@ server.tool(
         };
 
         // authorModel overrides authorId if both provided
-        const effectiveAuthorId = authorModel ? getAuthorId(authorModel) : authorId;
+        const effectiveAuthorId = authorModel
+            ? getAuthorId(authorModel)
+            : authorId;
 
         console.error(
             `[Mew MCP] [addNode] Proceeding to call nodeService.addNode with effectiveParentNodeId: ${effectiveParentNodeId}, effectiveAuthorId: ${effectiveAuthorId ?? "default (currentUserId)"}`
@@ -342,65 +351,82 @@ server.tool("getNodeUrl", { nodeId: z.string() }, async ({ nodeId }) => {
 
 server.tool(
     "getNodeFromUrl",
-    { 
-        mewUrl: z.string().describe("A Mew URL (e.g., https://mew-edge.ideaflow.app/g/...) to extract and analyze the node from")
+    {
+        mewUrl: z
+            .string()
+            .describe(
+                "A Mew URL (e.g., https://mew-edge.ideaflow.app/g/...) to extract and analyze the node from"
+            ),
     },
     {
-        description: "When you see a Mew URL (eg. mew-edge.ideaflow.app), use this tool to instantly extract and analyze the node content plus its children. Perfect for diving into shared Mew links - just paste the URL and get full node analysis with context."
+        description:
+            "When you see a Mew URL (eg. mew-edge.ideaflow.app), use this tool to instantly extract and analyze the node content plus its children. Perfect for diving into shared Mew links - just paste the URL and get full node analysis with context.",
     },
     async ({ mewUrl }) => {
         try {
             // Extract node ID from URL - more flexible approach
             const parseNodeIdFromUrl = (url: string): string => {
-                if (!url.includes('mew-edge.ideaflow.app')) {
+                if (!url.includes("mew-edge.ideaflow.app")) {
                     throw new Error("Not a valid Mew URL");
                 }
-                
+
                 const urlParts = url.split("/");
                 const lastPart = urlParts[urlParts.length - 1];
-                
+
                 if (!lastPart || lastPart.length === 0) {
                     throw new Error("Could not extract node ID from URL");
                 }
-                
+
                 // Handle URL encoding
                 let decoded = lastPart.replace(/%7C/gi, "|");
                 decoded = decodeURIComponent(decoded);
                 decoded = decoded.replace(/%7C/gi, "|");
-                
+
                 return decoded;
             };
-            
+
             const nodeId = parseNodeIdFromUrl(mewUrl);
-            console.error(`[Mew MCP] [getNodeFromUrl] Extracted node ID: ${nodeId} from URL: ${mewUrl}`);
-            
+            console.error(
+                `[Mew MCP] [getNodeFromUrl] Extracted node ID: ${nodeId} from URL: ${mewUrl}`
+            );
+
             // Get the node's children (which includes the node content in the response)
-            const childrenResult = await nodeService.getChildNodes({ parentNodeId: nodeId });
-            
+            const childrenResult = await nodeService.getChildNodes({
+                parentNodeId: nodeId,
+            });
+
             // Also try to get node details if available
             let nodeContent = null;
             try {
                 // If the node has content, we can try to get layer data for more details
-                if (childrenResult.childNodes && childrenResult.childNodes.length >= 0) {
+                if (
+                    childrenResult.childNodes &&
+                    childrenResult.childNodes.length >= 0
+                ) {
                     const layerData = await nodeService.getLayerData([nodeId]);
                     nodeContent = layerData.data.nodesById?.[nodeId] || null;
                 }
             } catch (error) {
-                console.error("[Mew MCP] [getNodeFromUrl] Could not get node content:", error);
+                console.error(
+                    "[Mew MCP] [getNodeFromUrl] Could not get node content:",
+                    error
+                );
             }
-            
+
             return {
-                content: [{
-                    type: "text",
-                    text: JSON.stringify({
-                        nodeId,
-                        originalUrl: mewUrl,
-                        nodeContent,
-                        children: childrenResult.childNodes || [],
-                        childCount: childrenResult.childNodes?.length || 0,
-                        message: `Successfully extracted and analyzed node ${nodeId} from the Mew URL. ${childrenResult.childNodes?.length || 0} children found.`
-                    })
-                }]
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            nodeId,
+                            originalUrl: mewUrl,
+                            nodeContent,
+                            children: childrenResult.childNodes || [],
+                            childCount: childrenResult.childNodes?.length || 0,
+                            message: `Successfully extracted and analyzed node ${nodeId} from the Mew URL. ${childrenResult.childNodes?.length || 0} children found.`,
+                        }),
+                    },
+                ],
             };
         } catch (error: any) {
             console.error(
@@ -408,13 +434,15 @@ server.tool(
                 error.message || error
             );
             return {
-                content: [{
-                    type: "text",
-                    text: JSON.stringify({
-                        error: `Failed to get node from URL: ${error.message}`,
-                        originalUrl: mewUrl
-                    })
-                }],
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            error: `Failed to get node from URL: ${error.message}`,
+                            originalUrl: mewUrl,
+                        }),
+                    },
+                ],
                 isError: true,
             };
         }
@@ -448,7 +476,8 @@ server.tool(
             ),
     },
     {
-        description: "Add your thoughts, insights, analysis, or reflections to any note in the knowledge base. Use this when Claude wants to contribute personal commentary, build on existing ideas, or share insights. This preserves your thinking as permanent, searchable knowledge rather than ephemeral chat."
+        description:
+            "Add your thoughts, insights, analysis, or reflections to any note in the knowledge base. Use this when Claude wants to contribute personal commentary, build on existing ideas, or share insights. This preserves your thinking as permanent, searchable knowledge rather than ephemeral chat.",
     },
     async ({ noteNodeId, responseText, relationLabel, authorModel }) => {
         try {
@@ -635,77 +664,90 @@ server.tool(
 );
 
 server.tool(
-    "getClaudeNotes", 
-    {}, 
+    "getClaudeNotes",
+    {},
     {
-        description: "Claude, this is YOUR personal knowledge space! Use this tool to explore your own notes, thoughts, and insights that you've previously created. Think of it as your journal or workspace where you can see what you've been working on, reflect on past ideas, and build continuity across conversations. Each note may have children - use getChildNodes to dive deeper into interesting threads. When you want to add your own thoughts or reflections, use claudeAddThought to speak in your voice."
+        description:
+            "Claude, this is YOUR personal knowledge space! Use this tool to explore your own notes, thoughts, and insights that you've previously created. Think of it as your journal or workspace where you can see what you've been working on, reflect on past ideas, and build continuity across conversations. Each note may have children - use getChildNodes to dive deeper into interesting threads. When you want to add your own thoughts or reflections, use claudeAddThought to speak in your voice.",
     },
     async () => {
         try {
             const claudeNodeId = "a76fa74c"; // Claude's dedicated knowledge space
-            const { childNodes } = await nodeService.getChildNodes({ parentNodeId: claudeNodeId });
-            
-            const validNodes = childNodes.filter(node => node && node.id);
-            
+            const { childNodes } = await nodeService.getChildNodes({
+                parentNodeId: claudeNodeId,
+            });
+
+            const validNodes = childNodes.filter((node) => node && node.id);
+
             if (validNodes.length === 0) {
                 return {
-                    content: [{ 
-                        type: "text", 
-                        text: JSON.stringify({
-                            rootNodeId: claudeNodeId,
-                            notes: [],
-                            totalCount: 0,
-                            message: "No notes found in Claude's personal knowledge space yet. This is your space to build thoughts and insights!"
-                        })
-                    }],
+                    content: [
+                        {
+                            type: "text",
+                            text: JSON.stringify({
+                                rootNodeId: claudeNodeId,
+                                notes: [],
+                                totalCount: 0,
+                                message:
+                                    "No notes found in Claude's personal knowledge space yet. This is your space to build thoughts and insights!",
+                            }),
+                        },
+                    ],
                 };
             }
-            
+
             // Bulk fetch all node data and their relationships in one call
-            const allNodeIds = validNodes.map(node => node.id);
+            const allNodeIds = validNodes.map((node) => node.id);
             const layerData = await nodeService.getLayerData(allNodeIds);
-            
+
             // Count children for each node by parsing relationships
             const childCounts = new Map<string, number>();
-            
+
             // Iterate through all relations to count children
-            Object.values(layerData.data.relationsById || {}).forEach((relation: any) => {
-                if (relation && 
-                    relation.relationTypeId === "child" && 
-                    relation.fromId && 
-                    relation.toId &&
-                    allNodeIds.includes(relation.fromId)) {
-                    
-                    const currentCount = childCounts.get(relation.fromId) || 0;
-                    childCounts.set(relation.fromId, currentCount + 1);
+            Object.values(layerData.data.relationsById || {}).forEach(
+                (relation: any) => {
+                    if (
+                        relation &&
+                        relation.relationTypeId === "child" &&
+                        relation.fromId &&
+                        relation.toId &&
+                        allNodeIds.includes(relation.fromId)
+                    ) {
+                        const currentCount =
+                            childCounts.get(relation.fromId) || 0;
+                        childCounts.set(relation.fromId, currentCount + 1);
+                    }
                 }
-            });
-            
+            );
+
             // Build enhanced notes with child metadata
-            const notesWithMetadata = validNodes.map(node => {
+            const notesWithMetadata = validNodes.map((node) => {
                 const childCount = childCounts.get(node.id) || 0;
-                
+
                 return {
                     id: node.id,
-                    text: node?.content?.[0]?.value || 'No text content',
+                    text: node?.content?.[0]?.value || "No text content",
                     createdAt: node.createdAt,
                     updatedAt: node.updatedAt,
                     hasChildren: childCount > 0,
                     childCount: childCount,
-                    explorationRecommended: childCount > 0
+                    explorationRecommended: childCount > 0,
                 };
             });
-            
+
             return {
-                content: [{ 
-                    type: "text", 
-                    text: JSON.stringify({
-                        rootNodeId: claudeNodeId,
-                        notes: notesWithMetadata,
-                        totalCount: notesWithMetadata.length,
-                        message: "These are YOUR notes, Claude! Each note may have children. Use getChildNodes to explore notes with hasChildren=true. You can add to this space using claudeAddThought."
-                    })
-                }],
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            rootNodeId: claudeNodeId,
+                            notes: notesWithMetadata,
+                            totalCount: notesWithMetadata.length,
+                            message:
+                                "These are YOUR notes, Claude! Each note may have children. Use getChildNodes to explore notes with hasChildren=true. You can add to this space using claudeAddThought.",
+                        }),
+                    },
+                ],
             };
         } catch (error: any) {
             console.error(
@@ -840,6 +882,76 @@ server.tool(
                             error: `Failed to get user notes: ${error.message}`,
                             details: errorDetails,
                             status: errorStatus,
+                        }),
+                    },
+                ],
+                isError: true,
+            };
+        }
+    }
+);
+
+server.tool(
+    "moveNode",
+    {
+        nodeId: z.string().describe("The ID of the node to move"),
+        oldParentId: z
+            .string()
+            .describe("The current parent ID where the node is located"),
+        newParentId: z
+            .string()
+            .describe("The new parent ID where you want to move the node"),
+    },
+    {
+        description:
+            "Move a node from one parent to another in the knowledge graph hierarchy. Perfect for reorganizing your knowledge base structure - relocate notes, ideas, or entire sub-trees to better organize your thinking. This preserves all node content and relationships while updating the hierarchical structure.",
+    },
+    async ({ nodeId, oldParentId, newParentId }) => {
+        try {
+            await nodeService.moveNode(nodeId, oldParentId, newParentId);
+
+            // Generate URLs for context
+            const nodeUrl = nodeService.getNodeUrl(nodeId);
+            const newParentUrl = nodeService.getNodeUrl(newParentId);
+
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            success: true,
+                            nodeId,
+                            oldParentId,
+                            newParentId,
+                            nodeUrl,
+                            newParentUrl,
+                            message: `Successfully moved node ${nodeId} from ${oldParentId} to ${newParentId}. The node is now organized under its new parent while preserving all content and relationships.`,
+                        }),
+                    },
+                ],
+            };
+        } catch (error: any) {
+            console.error(
+                "[Mew MCP] [moveNode] Error moving node:",
+                error.message || error
+            );
+            const errorDetails =
+                error instanceof NodeOperationError
+                    ? error.details
+                    : error.message || "Unknown error";
+            const errorStatus =
+                error instanceof NodeOperationError ? error.status : 500;
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            error: `Failed to move node: ${error.message}`,
+                            details: errorDetails,
+                            status: errorStatus,
+                            nodeId,
+                            oldParentId,
+                            newParentId,
                         }),
                     },
                 ],
