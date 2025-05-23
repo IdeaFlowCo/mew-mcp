@@ -468,41 +468,18 @@ server.tool(
             .describe(
                 "The type of response relationship. Be creative! Examples: 'response' (default), 'rebuttal', 'extension', 'suggestion', 'idea', 'related to', 'builds on', 'challenges', 'clarifies', 'inspiration', 'counterpoint', 'synthesis', 'deep dive', 'alternative view', etc. Choose what best describes your contribution."
             ),
-        authorModel: z
-            .enum(["Claude", "ChatGPT", "Grok", "Gemini", "User"])
-            .optional()
-            .describe(
-                "Which AI model is creating this response. Choose 'Claude' if you are Claude, or the appropriate model name. Defaults to 'User' if not specified."
-            ),
     },
     {
         description:
             "Add your thoughts, insights, analysis, or reflections to any note in the knowledge base. Use this when Claude wants to contribute personal commentary, build on existing ideas, or share insights. This preserves your thinking as permanent, searchable knowledge rather than ephemeral chat.",
     },
-    async ({ noteNodeId, responseText, relationLabel, authorModel }) => {
+    async ({ noteNodeId, responseText, relationLabel }) => {
         try {
-            // Map AI model to authorId
-            const getAuthorId = (model?: string): string | undefined => {
-                switch (model) {
-                    case "Claude":
-                        return "noreply@anthropic.com";
-                    case "ChatGPT":
-                        return "noreply@openai.com";
-                    case "Grok":
-                        return "noreply@x.ai";
-                    case "Gemini":
-                        return "noreply@google.com";
-                    case "User":
-                    default:
-                        return undefined; // Uses current user ID
-                }
-            };
-
             const result = await nodeService.addNode({
                 content: { type: NodeContentType.Text, text: responseText },
                 parentNodeId: noteNodeId,
                 relationLabel: relationLabel || "response",
-                authorId: getAuthorId(authorModel),
+                authorId: "noreply@anthropic.com", // Always Claude for claudeAddThought
             });
 
             // Generate URL for the created response
@@ -965,53 +942,144 @@ server.tool(
     "viewTreeContext",
     {
         rootNodeId: z.string().describe("The root node ID to build the tree view from (e.g., user root, global root, or any specific node)"),
-        maxDepth: z.number().optional().default(2).describe("Maximum depth to traverse (default: 2 levels)"),
-        maxChildrenPerNode: z.number().optional().default(8).describe("Maximum children to show per node (default: 8)")
+        apiBudget: z.number().optional().default(8).describe("API call budget for complexity (default: 8). Higher = more comprehensive but slower.")
     },
     {
-        description: "Get a comprehensive tree view of the knowledge graph structure. This tool provides hierarchical context showing the relationships between nodes, perfect for understanding where you are in the overall knowledge base and planning navigation. Takes ~10 seconds but gives rich structural insight."
+        description: "Claude, use this when you need to understand the structure and layout of a knowledge base! Returns a beautiful file-tree view showing how notes are organized. Dynamically adapts depth vs breadth based on tree structure for optimal information density. Perfect for: orienting yourself in unfamiliar knowledge bases, finding related content, planning navigation strategies, or explaining the overall structure to users. Takes ~5-15 seconds but provides invaluable spatial context."
     },
-    async ({ rootNodeId, maxDepth = 2, maxChildrenPerNode = 8 }) => {
+    async ({ rootNodeId, apiBudget = 8 }) => {
         try {
-            console.error(`[Mew MCP] [viewTreeContext] Building tree view from ${rootNodeId}, depth: ${maxDepth}, max children: ${maxChildrenPerNode}`);
+            console.error(`[Mew MCP] [viewTreeContext] Building adaptive tree view from ${rootNodeId}, API budget: ${apiBudget}`);
             
-            // Build tree level by level for better performance
-            const buildTreeByLevels = async () => {
-                const nodesByLevel = new Map<number, string[]>();
+            // Dynamic tree building with API call budget
+            const buildAdaptiveTree = async () => {
                 const nodeData = new Map<string, any>();
                 const nodeChildren = new Map<string, any>();
+                const apiCallsUsed = { count: 0 };
                 
-                // Start with root
+                // Helper to estimate API calls for a strategy (kept for future optimization)
+                // const estimateApiCalls = (depth: number, avgBreadth: number): number => {
+                //     let total = 0;
+                //     for (let d = 0; d <= depth; d++) {
+                //         total += Math.pow(avgBreadth, d);
+                //     }
+                //     return Math.ceil(total / 10); // Assume ~10 nodes per API call batch
+                // };
+                
+                // Context-aware strategy selection
+                const getInitialStrategy = (nodeId: string) => {
+                    if (nodeId === "global-root-id") {
+                        return { priority: "breadth", maxBreadth: 20, targetDepth: 2 };
+                    } else if (nodeId.includes("user-root-id")) {
+                        return { priority: "balanced", maxBreadth: 12, targetDepth: 3 };
+                    } else {
+                        return { priority: "depth", maxBreadth: 8, targetDepth: 4 };
+                    }
+                };
+                
+                const strategy = getInitialStrategy(rootNodeId);
+                console.error(`[Mew MCP] [viewTreeContext] Strategy: ${strategy.priority}, initial depth: ${strategy.targetDepth}, breadth: ${strategy.maxBreadth}`);
+                
+                // Sample first level to understand tree shape
+                const sampleRoot = async () => {
+                    apiCallsUsed.count += 1;
+                    const { childNodes } = await nodeService.getChildNodes({ parentNodeId: rootNodeId });
+                    const rootBreadth = childNodes.length;
+                    
+                    // Get data for root
+                    const layerData = await nodeService.getLayerData([rootNodeId]);
+                    nodeData.set(rootNodeId, layerData.data.nodesById?.[rootNodeId]);
+                    
+                    return { childNodes, rootBreadth };
+                };
+                
+                const { childNodes: rootChildren, rootBreadth } = await sampleRoot();
+                
+                // Dynamically adjust strategy based on what we found
+                const adjustStrategy = (breadth: number, currentStrategy: any) => {
+                    const newStrategy = { ...currentStrategy };
+                    
+                    if (breadth > 30) {
+                        // Very wide tree - prioritize breadth, limit depth
+                        newStrategy.targetDepth = Math.min(2, currentStrategy.targetDepth);
+                        newStrategy.maxBreadth = Math.min(25, Math.max(15, breadth));
+                    } else if (breadth < 5) {
+                        // Narrow tree - can afford more depth
+                        newStrategy.targetDepth = Math.min(4, currentStrategy.targetDepth + 1);
+                        newStrategy.maxBreadth = Math.max(8, breadth);
+                    }
+                    
+                    console.error(`[Mew MCP] [viewTreeContext] Adjusted strategy based on breadth ${breadth}: depth=${newStrategy.targetDepth}, breadth=${newStrategy.maxBreadth}`);
+                    return newStrategy;
+                };
+                
+                const finalStrategy = adjustStrategy(rootBreadth, strategy);
+                
+                // Build tree level by level with dynamic strategy
+                const nodesByLevel = new Map<number, string[]>();
                 nodesByLevel.set(0, [rootNodeId]);
                 
-                // Process each level
-                for (let depth = 0; depth <= maxDepth; depth++) {
+                // Process root children
+                const limitedRootChildren = rootChildren.slice(0, finalStrategy.maxBreadth);
+                nodeChildren.set(rootNodeId, {
+                    limited: limitedRootChildren,
+                    total: rootBreadth,
+                    hasMore: rootBreadth > finalStrategy.maxBreadth
+                });
+                
+                if (limitedRootChildren.length > 0) {
+                    nodesByLevel.set(1, limitedRootChildren.map(child => child.id));
+                }
+                
+                // Process deeper levels with budget awareness
+                for (let depth = 1; depth <= finalStrategy.targetDepth && apiCallsUsed.count < apiBudget; depth++) {
                     const currentLevelNodes = nodesByLevel.get(depth) || [];
                     if (currentLevelNodes.length === 0) break;
                     
-                    console.error(`[Mew MCP] [viewTreeContext] Processing level ${depth} with ${currentLevelNodes.length} nodes`);
+                    console.error(`[Mew MCP] [viewTreeContext] Level ${depth}: ${currentLevelNodes.length} nodes, API calls used: ${apiCallsUsed.count}/${apiBudget}`);
                     
-                    // Batch get all children for this level
-                    const childPromises = currentLevelNodes.map(async (nodeId) => {
+                    // Sample some nodes to understand breadth at this level
+                    const sampleSize = Math.min(3, currentLevelNodes.length);
+                    const sampleNodes = currentLevelNodes.slice(0, sampleSize);
+                    
+                    apiCallsUsed.count += 1;
+                    const samplePromises = sampleNodes.map(async (nodeId) => {
                         const { childNodes } = await nodeService.getChildNodes({ parentNodeId: nodeId });
-                        const limited = childNodes.slice(0, maxChildrenPerNode);
-                        nodeChildren.set(nodeId, {
-                            limited,
-                            total: childNodes.length,
-                            hasMore: childNodes.length > maxChildrenPerNode
-                        });
-                        return limited.map(child => child.id);
+                        return childNodes.length;
                     });
                     
-                    const allChildrenArrays = await Promise.all(childPromises);
-                    const nextLevelNodes = allChildrenArrays.flat();
+                    const sampleBreadths = await Promise.all(samplePromises);
+                    const avgBreadth = sampleBreadths.reduce((a, b) => a + b, 0) / sampleBreadths.length;
                     
-                    if (nextLevelNodes.length > 0 && depth < maxDepth) {
-                        nodesByLevel.set(depth + 1, nextLevelNodes);
-                    }
+                    // Dynamically adjust breadth limit based on what we're seeing
+                    const dynamicBreadthLimit = avgBreadth > 15 
+                        ? Math.min(8, finalStrategy.maxBreadth)
+                        : avgBreadth < 3 
+                        ? Math.max(5, Math.min(12, finalStrategy.maxBreadth))
+                        : finalStrategy.maxBreadth;
                     
-                    // Batch get node data for current level
-                    if (currentLevelNodes.length > 0) {
+                    // Get all children for this level (within budget)
+                    if (apiCallsUsed.count < apiBudget) {
+                        apiCallsUsed.count += 1;
+                        const childPromises = currentLevelNodes.map(async (nodeId) => {
+                            const { childNodes } = await nodeService.getChildNodes({ parentNodeId: nodeId });
+                            const limited = childNodes.slice(0, dynamicBreadthLimit);
+                            nodeChildren.set(nodeId, {
+                                limited,
+                                total: childNodes.length,
+                                hasMore: childNodes.length > dynamicBreadthLimit
+                            });
+                            return limited.map(child => child.id);
+                        });
+                        
+                        const allChildrenArrays = await Promise.all(childPromises);
+                        const nextLevelNodes = allChildrenArrays.flat();
+                        
+                        if (nextLevelNodes.length > 0 && depth < finalStrategy.targetDepth) {
+                            nodesByLevel.set(depth + 1, nextLevelNodes);
+                        }
+                        
+                        // Get node data for current level
                         const layerData = await nodeService.getLayerData(currentLevelNodes);
                         currentLevelNodes.forEach(nodeId => {
                             nodeData.set(nodeId, layerData.data.nodesById?.[nodeId]);
@@ -1019,13 +1087,14 @@ server.tool(
                     }
                 }
                 
-                // Build tree structure with depth limit
+                console.error(`[Mew MCP] [viewTreeContext] Completed with ${apiCallsUsed.count}/${apiBudget} API calls`);
+                
+                // Build tree structure
                 const buildNode = (nodeId: string, depth: number): any => {
                     const data = nodeData.get(nodeId);
                     const childInfo = nodeChildren.get(nodeId);
                     
-                    // Stop recursion at max depth
-                    const children = (depth < maxDepth && childInfo?.limited) 
+                    const children = (depth < finalStrategy.targetDepth && childInfo?.limited) 
                         ? childInfo.limited.map((child: any) => 
                             buildNode(child.id, depth + 1)
                           ).filter(Boolean) 
@@ -1044,17 +1113,24 @@ server.tool(
                     };
                 };
                 
-                return buildNode(rootNodeId, 0);
+                return {
+                    tree: buildNode(rootNodeId, 0),
+                    stats: {
+                        apiCallsUsed: apiCallsUsed.count,
+                        finalStrategy,
+                        rootBreadth
+                    }
+                };
             };
 
-            console.error(`[Mew MCP] [viewTreeContext] Starting tree traversal...`);
+            console.error(`[Mew MCP] [viewTreeContext] Starting adaptive tree traversal...`);
             const startTime = Date.now();
             
-            const treeStructure = await buildTreeByLevels();
+            const { tree: treeStructure, stats } = await buildAdaptiveTree();
             
             const endTime = Date.now();
             const duration = endTime - startTime;
-            console.error(`[Mew MCP] [viewTreeContext] Tree built in ${duration}ms`);
+            console.error(`[Mew MCP] [viewTreeContext] Adaptive tree built in ${duration}ms`);
 
             // Create a clean file-tree representation
             const formatTreeText = (node: any, indent: string = "", isLast: boolean = true): string => {
@@ -1098,12 +1174,12 @@ server.tool(
                     type: "text",
                     text: JSON.stringify({
                         rootNodeId,
-                        maxDepth,
-                        maxChildrenPerNode,
+                        apiBudget,
                         duration: `${duration}ms`,
+                        adaptiveStats: stats,
                         treeStructure,
                         treeText: `Tree View:\n${treeText}`,
-                        message: `Tree context built successfully from ${rootNodeId}. Shows up to ${maxDepth} levels deep with max ${maxChildrenPerNode} children per node. Node IDs are shown in brackets [id] for easy reference. Use this structure to understand the knowledge base layout and plan your navigation.`
+                        message: `Adaptive tree context built successfully from ${rootNodeId}. Used ${stats.apiCallsUsed}/${apiBudget} API calls with ${stats.finalStrategy.priority} strategy (depth: ${stats.finalStrategy.targetDepth}, breadth: ${stats.finalStrategy.maxBreadth}). Root has ${stats.rootBreadth} children. Use this structure to understand the knowledge base layout and plan your navigation.`
                     })
                 }]
             };
