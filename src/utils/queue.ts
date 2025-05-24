@@ -70,21 +70,10 @@ export class RequestQueue {
                 // and to prevent an early exit if one request fails.
                 // The individual promises returned by enqueue() are responsible for their own
                 // resolution/rejection based on the outcome of the original request() function.
-                const results = await Promise.allSettled(
+                await Promise.allSettled(
                     batch.map((req) => req())
                 );
 
-                // Optional: Log settled results for debugging queue behavior
-                results.forEach((result, index) => {
-                    if (result.status === "rejected") {
-                        // This log helps identify if individual requests are failing within a batch
-                        // and if their rejections are being surfaced by the enqueue promise.
-                        console.error(
-                            `[Mew MCP] [RequestQueue] Request in batch (index ${index}) settled as rejected:`,
-                            result.reason
-                        );
-                    }
-                });
 
                 // If there are still items in the queue, wait before processing the next batch
                 if (this.queue.length > 0) {
@@ -94,12 +83,6 @@ export class RequestQueue {
                 }
             }
         } catch (error) {
-            // This catch is a general safeguard for the processQueue loop itself.
-            // Promise.allSettled should prevent this from being hit by individual request failures.
-            console.error(
-                "[Mew MCP] [RequestQueue] Critical error in processQueue loop:",
-                error
-            );
         } finally {
             // Ensure processing flag is reset once the queue is empty or an error occurs
             this.processing = false;

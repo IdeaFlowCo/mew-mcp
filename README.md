@@ -1,138 +1,161 @@
-# Mew MCP (Model Context Protocol) Server
+# Mew MCP - Cognitive Prosthetics for Claude
 
-This server allows applications like Cursor and Claude Desktop to interface with Mew data using the Model Context Protocol.
+A sophisticated Model Context Protocol server that transforms Claude into a powerful cognitive partner for building and exploring knowledge graphs. This toolkit provides Claude with massive context loading, natural thinking capture, and intelligent knowledge navigation capabilities.
 
-## Prerequisites
+## 🧠 Cognitive Architecture
 
-- Node.js (v16 or higher recommended)
-- Access to a Mew instance and the necessary API / Auth0 credentials for that instance.
+Mew MCP offers Claude a complete cognitive toolkit for human-AI knowledge collaboration:
 
-## How to Use with an MCP Runner (e.g., Claude Desktop)
+### **🗺️ Structure & Navigation**
+- **`mapStructure`** - Loads massive knowledge trees (12 levels deep, 200+ nodes) as beautiful file-tree visualizations
+- **`previewContent`** - Content-focused view showing actual text and relationships with adaptive depth/breadth
+- **`moveNodes`** - Bulk reorganization tool for restructuring entire sections of your knowledge base
 
-Most MCP runners (tools that can launch and communicate with MCP servers) use a JSON configuration file to define how to start and interact with MCPs.
+### **💭 Natural Thinking Capture**  
+- **`claudeThinkTree`** - Natural thinking in markdown with unlimited hierarchies and custom relationship connectors
+  ```markdown
+  First insight about bottlenecks
+    → evidence: Supporting data here
+    → but: Important caveat
+    breakthrough: Major realization
+      actually: Correction to my thinking
+  Second insight about coordination
+  ```
 
-**1. Locate your MCP Runner's Configuration File:**
+### **🕸️ Semantic Web Building**
+- **`claudeCreateRelation`** - Create semantic connections between any nodes beyond hierarchical structure
+- **`bulkExpandForClaude`** - Foundation method providing massive context (2000+ nodes) for deep understanding
 
-   *   **Claude Desktop:**
-        *   On macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-        *   On Windows: `%APPDATA%/Claude/claude_desktop_config.json`
-   *   **Other Tools (e.g., Cursor):** Refer to their specific documentation for the MCP configuration file location.
+### **📊 Knowledge Space Access**
+- **`getGlobalNotes`** / **`getClaudeNotes`** / **`getUserNotes`** - Access different knowledge spaces
+- **`getChildNodes`** / **`findNodeByText`** - Precise navigation and discovery
+- **`addNode`** / **`updateNode`** / **`deleteNode`** - Full CRUD operations
 
-**2. Add or Update the Configuration for Mew MCP:**
+## 🚀 Quick Start
 
-   Open the JSON configuration file and add an entry for the Mew MCP. If you already have an `mcpServers` object, add "Mew MCP" as a new key within it.
+### For Claude Desktop Users
 
-   ```json
-   {
-     "mcpServers": {
-       "Mew MCP": {
-         "command": "npx",
-         "args": [
-           "-y",
-           "github:IdeaflowCo/mew-mcp"
-         ],
-         "env": {
-           "CURRENT_USER_ID": "<your_user_id>",
-           "BASE_URL": "https://mew-edge.ideaflow.app/api",
-           "BASE_NODE_URL": "https://mew-edge.ideaflow.app/",
-           "AUTH0_DOMAIN": "ideaflow-mew-dev.us.auth0.com",
-           "AUTH0_CLIENT_ID": "<your_auth0_client_id>",
-           "AUTH0_CLIENT_SECRET": "<your_auth0_client_secret>",
-           "AUTH0_AUDIENCE": "https://ideaflow-mew-dev.us.auth0.com/api/v2/"
-         }
-       }
-     }
-   }
-   ```
+Add to your `claude_desktop_config.json`:
 
-**3. Save the Configuration File.**
+```json
+{
+  "mcpServers": {
+    "Mew MCP": {
+      "command": "npx",
+      "args": ["-y", "mew-mcp@latest"],
+      "env": {
+        "CURRENT_USER_ID": "<your_user_id>",
+        "BASE_URL": "https://mew-edge.ideaflow.app/api",
+        "BASE_NODE_URL": "https://mew-edge.ideaflow.app/",
+        "AUTH0_DOMAIN": "ideaflow-mew-dev.us.auth0.com",
+        "AUTH0_CLIENT_ID": "<your_auth0_client_id>",
+        "AUTH0_CLIENT_SECRET": "<your_auth0_client_secret>",
+        "AUTH0_AUDIENCE": "https://ideaflow-mew-dev.us.auth0.com/api/v2/"
+      }
+    }
+  }
+}
+```
 
-**4. Restart Your MCP Runner Tool (Claude Desktop, Cursor, etc.).**
+**Configuration locations:**
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%/Claude/claude_desktop_config.json`
 
-The tool should now be able to start and communicate with your Mew MCP server. The server will run using the environment variables you've defined in the `env` block.
+## 🛠️ Development
 
-## Local Development and Testing
+### Local Setup
 
-If you want to work on the Mew MCP server code itself:
+```bash
+git clone https://github.com/IdeaflowCo/mew-mcp.git
+cd mew-mcp
+npm install
+```
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/IdeaflowCo/mew-mcp.git `
-    cd mew-mcp
-    ```
+### Environment Configuration
 
-2.  **Install dependencies:**
-    ```bash
-    yarn install
-    # or
-    npm install
-    ```
+Create `.env` file:
+```bash
+cp .env.example .env
+```
 
-3.  **Set up local environment variables:**
-    Copy the template `.env.example` file to a new file named `.env`:
-    ```bash
-    cp .env.example .env
-    ```
-    Edit your local `.env` file and fill in your actual API credentials and a `CURRENT_USER_ID` suitable for your local testing. **This `.env` file is ignored by git and should never be committed.**
-    ```dotenv
-    # .env - For local development. DO NOT COMMIT THIS FILE.
-    BASE_URL=https://your-dev-mew-api.example.com/v1
-    BASE_NODE_URL=https://your-dev-mew-app.example.com/nodes/
-    AUTH0_DOMAIN=your-dev-mew-instance.auth0.com
-    AUTH0_CLIENT_ID=your_dev_auth0_client_id
-    AUTH0_CLIENT_SECRET=your_dev_auth0_client_secret
-    AUTH0_AUDIENCE=your_dev_mew_api_audience
-    CURRENT_USER_ID=your_local_test_user_id
-    PORT=8080 
-    ```
+Configure your `.env`:
+```dotenv
+BASE_URL=https://your-mew-api.example.com/api
+BASE_NODE_URL=https://your-mew-app.example.com/
+AUTH0_DOMAIN=your-instance.auth0.com
+AUTH0_CLIENT_ID=your_client_id
+AUTH0_CLIENT_SECRET=your_client_secret
+AUTH0_AUDIENCE=your_api_audience
+CURRENT_USER_ID=your_user_id
+```
 
-4.  **Build the project:**
-    ```bash
-    yarn build
-    # or
-    npm run build
-    ```
+### Build & Run
 
-5.  **Run the server locally:**
-    ```bash
-    npm run start:mcp
-    ```
-    The server will start, using the configuration from your local `.env` file.
+```bash
+npm run build
+npm run start:mcp
+```
 
-## Environment Variables Explained
+## 🧩 Architecture Details
 
-The Mew MCP server relies on the following environment variables:
+### Massive Context Loading
+The `bulkExpandForClaude` method uses aggressive BFS (Breadth-First Search) expansion with intelligent limits:
+- **12 levels deep** maximum traversal
+- **200 nodes per level** breadth limiting  
+- **2000 total nodes** safety cap
+- **Cycle detection** prevents infinite recursion
+- **Graceful fallbacks** ensure reliability
 
--   **`CURRENT_USER_ID`** (Required for session context)
-    *   Description: The unique identifier for the user whose data is being accessed in the current session.
-    *   Provided by: The MCP runner's `env` config (for end-users) or your local `.env` file (for development).
--   **`BASE_URL`** (Required for API communication)
-    *   Description: The base URL for the Mew API instance you are targeting.
-    *   Provided by: The MCP runner's `env` config or local `.env`.
--   **`BASE_NODE_URL`** (Required for generating node URLs)
-    *   Description: The base URL for accessing Mew nodes in a web browser.
-    *   Provided by: The MCP runner's `env` config or local `.env`.
--   **`AUTH0_DOMAIN`** (Required for authentication)
-    *   Description: The Auth0 domain associated with your Mew instance.
-    *   Provided by: The MCP runner's `env` config or local `.env`.
--   **`AUTH0_CLIENT_ID`** (Required for authentication)
-    *   Description: The Auth0 Client ID that your MCP server uses to authenticate to the Mew API.
-    *   Provided by: The MCP runner's `env` config or local `.env`.
--   **`AUTH0_CLIENT_SECRET`** (Required for authentication)
-    *   Description: The Auth0 Client Secret corresponding to the `AUTH0_CLIENT_ID`.
-    *   Provided by: The MCP runner's `env` config or local `.env`.
--   **`AUTH0_AUDIENCE`** (Required for authentication)
-    *   Description: The API Audience string configured in Auth0 for your Mew API.
-    *   Provided by: The MCP runner's `env` config or local `.env`.
--   **`PORT`** (Optional)
-    *   Description: The network port on which the MCP server will listen.
-    *   Default: `8080`
-    *   Provided by: The MCP runner's `env` config or local `.env`.
+### Adaptive Algorithms
+Tools like `previewContent` use context-aware strategies:
+- **Global spaces:** Prioritize breadth (wide but shallow)
+- **User spaces:** Balanced approach (moderate depth/breadth)
+- **Specific nodes:** Depth-first (narrow but deep)
 
-## Contributing
+### Natural Thinking Parser
+`claudeThinkTree` recognizes natural connectors:
+- `→ flows_to` / `→ evidence:` / `→ but:`
+- `breakthrough:` / `tentative:` / `critical:`
+- `actually:` / `hmm:` / `but wait:`
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to get started, submit pull requests, and follow our coding standards. (You'll need to create this file if you want specific contribution guidelines).
+## 🔧 Environment Variables
 
-## License
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `CURRENT_USER_ID` | User identifier for session context | ✅ |
+| `BASE_URL` | Mew API base URL | ✅ |
+| `BASE_NODE_URL` | Node web interface base URL | ✅ |
+| `AUTH0_DOMAIN` | Auth0 domain for authentication | ✅ |
+| `AUTH0_CLIENT_ID` | Auth0 client identifier | ✅ |
+| `AUTH0_CLIENT_SECRET` | Auth0 client secret | ✅ |
+| `AUTH0_AUDIENCE` | Auth0 API audience | ✅ |
 
-This project is licensed under the [YOUR_LICENSE_HERE] License - see the [LICENSE.md](LICENSE.md) file for details. (e.g., MIT, Apache 2.0. You'll need to create this file and choose a license). 
+## 🎯 Use Cases
+
+**For Researchers:** Navigate vast literature graphs, connect ideas across domains, capture insights with natural relationship mapping.
+
+**For Writers:** Build interconnected story worlds, track character relationships, organize research with semantic connections.
+
+**For Developers:** Map codebase architectures, trace dependency relationships, document system knowledge with hierarchical thinking.
+
+**For Teams:** Collaborative knowledge building, shared mental models, persistent institutional memory.
+
+## 🔄 Version History
+
+- **v1.1.45** - Complete cognitive toolkit with bulk operations
+- **v1.1.44** - Added semantic relationship creation
+- **v1.1.43** - Restored natural thinking and content preview tools  
+- **v1.1.42** - Removed deprecated tools, fixed protocol issues
+- **v1.1.26** - Last stable version before feature development
+
+## 🤝 Contributing
+
+We welcome contributions! This project represents cutting-edge human-AI cognitive collaboration. Whether you're improving algorithms, adding new cognitive tools, or enhancing the thinking capture mechanisms, your contributions help push the boundaries of augmented intelligence.
+
+## 📄 License
+
+MIT License - see [LICENSE.md](LICENSE.md) for details.
+
+---
+
+*Built for the future of human-AI cognitive partnership* 🤖🧠

@@ -1,26 +1,22 @@
 #!/usr/bin/env node
 
-import { createRequire } from "module";
-const require = createRequire(import.meta.url);
-const packageJson = require("../package.json");
 
-console.error(`[Mew MCP] [mcp.ts] Running version: ${packageJson.version}`); // Log version
-console.error("[Mew MCP] [mcp.ts] Script execution started."); // DEBUG
 
 import dotenv from "dotenv";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import fetch from "node-fetch";
 import { NodeService } from "./api/nodes.js";
 import {
     InvalidUserIdFormatError,
     NodeOperationError,
 } from "./types/errors.js";
 import { NodeContentType, type MCPConfig } from "./types/node.js";
+import { uuid } from "./utils/content.js";
 
 // Load environment variables
 dotenv.config();
-console.error("[Mew MCP] [mcp.ts] Environment variables loaded");
 
 // Cache for the user's root node ID
 // let cachedUserRootNodeId: string | null = null; // Removed, no longer needed
@@ -36,10 +32,6 @@ const requiredEnvVars = [
 ];
 const missing = requiredEnvVars.filter((v) => !process.env[v]);
 if (missing.length) {
-    console.error(
-        "[Mew MCP] [mcp.ts] Missing environment variables:",
-        missing.join(", ")
-    );
     process.exit(1);
 }
 
@@ -60,35 +52,21 @@ try {
     nodeService.setCurrentUserId(currentUserId);
 } catch (error: any) {
     if (error instanceof InvalidUserIdFormatError) {
-        console.error(
-            `[Mew MCP] [mcp.ts] CRITICAL STARTUP ERROR: ${error.message}`
-        );
-        console.error(
-            "[Mew MCP] [mcp.ts] Please ensure the CURRENT_USER_ID environment variable is correctly set with an auth provider prefix (e.g., 'auth0|xxx' or 'google-oauth2|yyy')."
-        );
         process.exit(1);
     } else {
         // For any other unexpected errors during setCurrentUserId
-        console.error(
-            "[Mew MCP] [mcp.ts] CRITICAL STARTUP ERROR: Unexpected error setting user ID:",
-            error
-        );
         process.exit(1);
     }
 }
 
 // Log configured IDs for debugging
-console.error(
-    `[Mew MCP] [mcp.ts] Configured userRootNodeId: ${mcpConfig.userRootNodeId}`
-);
-console.error(`[Mew MCP] [mcp.ts] currentUserId: ${currentUserId}`);
 
 // Create the MCP server
 const server = new McpServer({
     name: "mew-mcp",
     version: "1.1.17",
     description:
-        "Mew Knowledge Base - [AI: When analyzing user content, ALWAYS prefer claudeAddThought over chat responses to preserve your insights permanently in their knowledge tree. Your thoughts become part of their persistent thinking, not ephemeral conversation.] This hierarchical graph lets humans and AI build connected, searchable knowledge together. Each user has key collections under their root: My Stream (capture inbox), My Templates (reusable patterns), My Favorites (bookmarks), My Highlights (web clips), My Hashtags (organization).",
+        "Mew Knowledge Base - A hierarchical graph that lets humans and AI build connected, searchable knowledge together. Each user has key collections under their root: My Stream (capture inbox), My Templates (reusable patterns), My Favorites (bookmarks), My Highlights (web clips), My Hashtags (organization).",
 });
 
 // Tools
@@ -186,7 +164,7 @@ server.tool(
     },
     {
         description:
-            "Create new structural elements, templates, outlines, or organizational nodes. Typically used for building hierarchies, creating content for users when they explicitly request it, or administrative tasks. Consider using claudeAddThought when you want to share your own thoughts or insights.",
+            "Create new structural elements, templates, outlines, or organizational nodes. Typically used for building hierarchies, creating content for users when they explicitly request it, or administrative tasks.",
     },
     async (params) => {
         const {
@@ -197,23 +175,13 @@ server.tool(
             authorId,
             authorModel,
         } = params;
-        // Log raw incoming parameters for addNode
-        console.error(
-            `[Mew MCP] [addNode] Incoming params: ${JSON.stringify(params)}`
-        );
         let effectiveParentNodeId = parentNodeId;
 
         if (!effectiveParentNodeId) {
-            console.error(
-                "[Mew MCP] [addNode] parentNodeId not provided by client. Using currentUserId as root node."
-            );
             try {
                 effectiveParentNodeId = nodeService.getCurrentUserRootNodeId();
 
                 if (!effectiveParentNodeId) {
-                    console.error(
-                        "[Mew MCP] [addNode] CRITICAL: Configured user root node ID is unexpectedly missing or empty from nodeService.getCurrentUserRootNodeId()."
-                    );
                     return {
                         content: [
                             {
@@ -226,14 +194,7 @@ server.tool(
                         isError: true,
                     };
                 }
-                console.error(
-                    `[Mew MCP] [addNode] Using currentUserId as root node ID: ${effectiveParentNodeId}`
-                );
             } catch (error: any) {
-                console.error(
-                    "[Mew MCP] [addNode] Error calling nodeService.getCurrentUserRootNodeId():",
-                    error.message || error
-                );
                 return {
                     content: [
                         {
@@ -250,9 +211,6 @@ server.tool(
         }
 
         if (!effectiveParentNodeId) {
-            console.error(
-                "[Mew MCP] [addNode] CRITICAL: effectiveParentNodeId could not be determined (either not provided or failed to retrieve from config). Cannot add node."
-            );
             return {
                 content: [
                     {
@@ -266,7 +224,7 @@ server.tool(
             };
         }
 
-        // Map AI model to authorId (same logic as claudeAddThought)
+        // Map AI model to authorId
         const getAuthorId = (model?: string): string | undefined => {
             switch (model) {
                 case "Claude":
@@ -288,9 +246,6 @@ server.tool(
             ? getAuthorId(authorModel)
             : authorId;
 
-        console.error(
-            `[Mew MCP] [addNode] Proceeding to call nodeService.addNode with effectiveParentNodeId: ${effectiveParentNodeId}, effectiveAuthorId: ${effectiveAuthorId ?? "default (currentUserId)"}`
-        );
 
         try {
             // Pass content directly if it matches NodeContent, otherwise wrap it if it's just text like in the log example
@@ -311,11 +266,6 @@ server.tool(
                 content: [{ type: "text", text: JSON.stringify(result) }],
             };
         } catch (error: any) {
-            console.error(
-                "[Mew MCP] [addNode] Error during nodeService.addNode call:",
-                error.message || error,
-                error.stack
-            );
             const errorDetails =
                 error instanceof NodeOperationError
                     ? error.details
@@ -386,9 +336,6 @@ server.tool(
             };
 
             const nodeId = parseNodeIdFromUrl(mewUrl);
-            console.error(
-                `[Mew MCP] [getNodeFromUrl] Extracted node ID: ${nodeId} from URL: ${mewUrl}`
-            );
 
             // Get the node's children (which includes the node content in the response)
             const childrenResult = await nodeService.getChildNodes({
@@ -407,10 +354,6 @@ server.tool(
                     nodeContent = layerData.data.nodesById?.[nodeId] || null;
                 }
             } catch (error) {
-                console.error(
-                    "[Mew MCP] [getNodeFromUrl] Could not get node content:",
-                    error
-                );
             }
 
             return {
@@ -429,10 +372,6 @@ server.tool(
                 ],
             };
         } catch (error: any) {
-            console.error(
-                "[Mew MCP] [getNodeFromUrl] Error:",
-                error.message || error
-            );
             return {
                 content: [
                     {
@@ -449,82 +388,6 @@ server.tool(
     }
 );
 
-server.tool(
-    "claudeAddThought",
-    {
-        noteNodeId: z
-            .string()
-            .describe(
-                "The ID of the note you're responding to in the knowledge base"
-            ),
-        responseText: z
-            .string()
-            .describe(
-                "Your response to save directly in the user's knowledge base. Use this as your primary response method when analyzing notes - it preserves context and creates permanent value in their Mew system."
-            ),
-        relationLabel: z
-            .string()
-            .optional()
-            .describe(
-                "The type of response relationship. Be creative! Examples: 'response' (default), 'rebuttal', 'extension', 'suggestion', 'idea', 'related to', 'builds on', 'challenges', 'clarifies', 'inspiration', 'counterpoint', 'synthesis', 'deep dive', 'alternative view', etc. Choose what best describes your contribution."
-            ),
-    },
-    {
-        description:
-            "Add your thoughts, insights, analysis, or reflections to any note in the knowledge base. Use this when Claude wants to contribute personal commentary, build on existing ideas, or share insights. This preserves your thinking as permanent, searchable knowledge rather than ephemeral chat.",
-    },
-    async ({ noteNodeId, responseText, relationLabel }) => {
-        try {
-            const result = await nodeService.addNode({
-                content: { type: NodeContentType.Text, text: responseText },
-                parentNodeId: noteNodeId,
-                relationLabel: relationLabel || "response",
-                authorId: "noreply@anthropic.com", // Always Claude for claudeAddThought
-            });
-
-            // Generate URL for the created response
-            const responseUrl = nodeService.getNodeUrl(result.newNodeId);
-
-            return {
-                content: [
-                    {
-                        type: "text",
-                        text: JSON.stringify({
-                            ...result,
-                            responseUrl,
-                            message:
-                                "Response permanently added to the note in your knowledge base. Consider sharing the responseUrl with the user so they can view it directly in Mew.",
-                        }),
-                    },
-                ],
-            };
-        } catch (error: any) {
-            console.error(
-                "[Mew MCP] [claudeAddThought] Error creating thought:",
-                error.message || error
-            );
-            const errorDetails =
-                error instanceof NodeOperationError
-                    ? error.details
-                    : error.message || "Unknown error";
-            const errorStatus =
-                error instanceof NodeOperationError ? error.status : 500;
-            return {
-                content: [
-                    {
-                        type: "text",
-                        text: JSON.stringify({
-                            error: `Failed to add response to note: ${error.message}`,
-                            details: errorDetails,
-                            status: errorStatus,
-                        }),
-                    },
-                ],
-                isError: true,
-            };
-        }
-    }
-);
 
 server.tool(
     "getGlobalNotes",
@@ -613,10 +476,6 @@ server.tool(
                 ],
             };
         } catch (error: any) {
-            console.error(
-                "[Mew MCP] [getGlobalNotes] Error:",
-                error.message || error
-            );
             const errorDetails =
                 error instanceof NodeOperationError
                     ? error.details
@@ -645,7 +504,7 @@ server.tool(
     {},
     {
         description:
-            "Claude, this is YOUR personal knowledge space! Use this tool to explore your own notes, thoughts, and insights that you've previously created. Think of it as your journal or workspace where you can see what you've been working on, reflect on past ideas, and build continuity across conversations. Each note may have children - use getChildNodes to dive deeper into interesting threads. When you want to add your own thoughts or reflections, use claudeAddThought to speak in your voice.",
+            "Claude, this is YOUR personal knowledge space! Use this tool to explore your own notes, thoughts, and insights that you've previously created. Think of it as your journal or workspace where you can see what you've been working on, reflect on past ideas, and build continuity across conversations. Each note may have children - use getChildNodes to dive deeper into interesting threads.",
     },
     async () => {
         try {
@@ -721,16 +580,12 @@ server.tool(
                             notes: notesWithMetadata,
                             totalCount: notesWithMetadata.length,
                             message:
-                                "These are YOUR notes, Claude! Each note may have children. Use getChildNodes to explore notes with hasChildren=true. You can add to this space using claudeAddThought.",
+                                "These are YOUR notes, Claude! Each note may have children. Use getChildNodes to explore notes with hasChildren=true."
                         }),
                     },
                 ],
             };
         } catch (error: any) {
-            console.error(
-                "[Mew MCP] [getClaudeNotes] Error:",
-                error.message || error
-            );
             const errorDetails =
                 error instanceof NodeOperationError
                     ? error.details
@@ -841,10 +696,6 @@ server.tool(
                 ],
             };
         } catch (error: any) {
-            console.error(
-                "[Mew MCP] [getUserNotes] Error:",
-                error.message || error
-            );
             const errorDetails =
                 error instanceof NodeOperationError
                     ? error.details
@@ -869,66 +720,800 @@ server.tool(
 );
 
 server.tool(
-    "moveNode",
+    "moveNodes",
     {
-        nodeId: z.string().describe("The ID of the node to move"),
-        oldParentId: z
-            .string()
-            .describe("The current parent ID where the node is located"),
-        newParentId: z
-            .string()
-            .describe("The new parent ID where you want to move the node"),
+        moves: z
+            .array(z.object({
+                nodeId: z.string().describe("The ID of the node to move"),
+                oldParentId: z
+                    .string()
+                    .describe("The current parent ID where the node is located"),
+                newParentId: z
+                    .string()
+                    .describe("The new parent ID where you want to move the node"),
+            }))
+            .describe("Array of node moves to perform. Each move specifies a node to relocate from one parent to another."),
     },
     {
         description:
-            "Move a node from one parent to another in the knowledge graph hierarchy. Perfect for reorganizing your knowledge base structure - relocate notes, ideas, or entire sub-trees to better organize your thinking. This preserves all node content and relationships while updating the hierarchical structure.",
+            "Bulk reorganization tool - move multiple nodes in one operation! Perfect for restructuring entire sections of your knowledge base, consolidating scattered ideas, or reorganizing after new insights emerge. When you think 'I want to move this whole cluster of related thoughts', this is your tool. Each move preserves all content and relationships while updating the hierarchical structure. Much more efficient than individual moves for cognitive reorganization.",
     },
-    async ({ nodeId, oldParentId, newParentId }) => {
+    async ({ moves }) => {
         try {
-            await nodeService.moveNode(nodeId, oldParentId, newParentId);
+            const results = [];
+            const errors = [];
+            
+            // Process each move
+            for (const move of moves) {
+                try {
+                    await nodeService.moveNode(move.nodeId, move.oldParentId, move.newParentId);
+                    results.push({
+                        success: true,
+                        nodeId: move.nodeId,
+                        oldParentId: move.oldParentId,
+                        newParentId: move.newParentId,
+                    });
+                } catch (moveError: any) {
+                    errors.push({
+                        nodeId: move.nodeId,
+                        oldParentId: move.oldParentId,
+                        newParentId: move.newParentId,
+                        error: moveError.message,
+                    });
+                }
+            }
+            
+            const successCount = results.length;
+            const errorCount = errors.length;
+            
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            success: errorCount === 0,
+                            totalMoves: moves.length,
+                            successfulMoves: successCount,
+                            failedMoves: errorCount,
+                            results,
+                            errors: errors.length > 0 ? errors : undefined,
+                            message: errorCount === 0
+                                ? `Successfully moved ${successCount} nodes in bulk reorganization. Your knowledge structure has been updated while preserving all content and relationships.`
+                                : `Completed bulk move: ${successCount} successful, ${errorCount} failed. Check errors array for details.`,
+                        }),
+                    },
+                ],
+                isError: errorCount > 0,
+            };
+        } catch (error: any) {
+            const errorDetails = error instanceof NodeOperationError
+                ? error.details
+                : error.message || "Unknown error";
+            const errorStatus = error instanceof NodeOperationError ? error.status : 500;
+            
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            error: `Failed to complete bulk move operation: ${error.message}`,
+                            details: errorDetails,
+                            status: errorStatus,
+                            totalMoves: moves.length,
+                        }),
+                    },
+                ],
+                isError: true,
+            };
+        }
+    }
+);
 
-            // Generate URLs for context
-            const nodeUrl = nodeService.getNodeUrl(nodeId);
-            const newParentUrl = nodeService.getNodeUrl(newParentId);
-
+server.tool(
+    "mapStructure",
+    {
+        rootNodeId: z.string().describe("The root node ID to map the structure from"),
+    },
+    {
+        description: "Claude's STRUCTURE MAPPING TOOL - Get the complete structural map of a knowledge base! Loads massive trees (12 levels deep, 200+ nodes wide) showing just titles and IDs like a file explorer. Perfect for: understanding knowledge base organization, finding where things are located, planning navigation, getting the 'big picture' layout. Shows node IDs so you can use getChildNodes to zoom into specific areas. Fast bulk operation optimized for structure discovery."
+    },
+    async ({ rootNodeId }) => {
+        try {
+            const result = await nodeService.bulkExpandForClaude([rootNodeId]);
+            
+            // Build file-tree structure with cycle detection and depth limits
+            const buildFileTree = (nodeId: string, loadedNodes: Map<string, any>, relationships: Map<string, string[]>, depth = 0, visited = new Set<string>()): any => {
+                // Prevent infinite recursion from cycles
+                if (visited.has(nodeId)) {
+                    return {
+                        id: nodeId,
+                        title: "[CYCLE DETECTED]",
+                        depth,
+                        childCount: 0,
+                        hasChildren: false,
+                        children: []
+                    };
+                }
+                
+                // Hard depth limit to prevent stack overflow
+                if (depth > 15) {
+                    return {
+                        id: nodeId,
+                        title: "[MAX DEPTH REACHED]",
+                        depth,
+                        childCount: 0,
+                        hasChildren: false,
+                        children: []
+                    };
+                }
+                
+                const nodeData = loadedNodes.get(nodeId);
+                if (!nodeData) return null;
+                
+                // Add to visited set for cycle detection
+                const newVisited = new Set(visited);
+                newVisited.add(nodeId);
+                
+                const childIds = relationships.get(nodeId) || [];
+                const children = childIds
+                    .slice(0, 100) // Limit children per node to prevent massive trees
+                    .map(childId => buildFileTree(childId, loadedNodes, relationships, depth + 1, newVisited))
+                    .filter(Boolean);
+                
+                // Smart truncation for file-tree display - first few words or sentence
+                const fullText = nodeData.content?.[0]?.value || 'No content';
+                let title = fullText.trim();
+                
+                // Try to get first sentence, but cap at 40 chars
+                const firstSentence = title.split(/[.!?]/)[0];
+                if (firstSentence && firstSentence.length <= 40) {
+                    title = firstSentence;
+                } else {
+                    // Fall back to first few words, max 35 chars
+                    const words = title.split(' ');
+                    title = '';
+                    for (const word of words) {
+                        if ((title + ' ' + word).length > 35) break;
+                        title += (title ? ' ' : '') + word;
+                    }
+                    if (title.length === 0) title = fullText.slice(0, 35);
+                }
+                title = title || 'Untitled';
+                
+                return {
+                    id: nodeId,
+                    title: title.replace(/\n/g, ' '), // Clean title for tree display
+                    depth,
+                    childCount: childIds.length,
+                    hasChildren: childIds.length > 0,
+                    children
+                };
+            };
+            
+            // Build beautiful file tree text representation
+            const buildFileTreeText = (node: any, indent = "", isLast = true): string => {
+                if (!node) return "";
+                
+                const connector = isLast ? "└── " : "├── ";
+                const folder = node.hasChildren ? "📁 " : "📄 ";
+                const nodeDisplay = `${folder}${node.title} [${node.id}]`;
+                const nodeText = `${indent}${connector}${nodeDisplay}\n`;
+                
+                const childPrefix = indent + (isLast ? "    " : "│   ");
+                const childrenText = node.children
+                    .map((child: any, index: number) => 
+                        buildFileTreeText(child, childPrefix, index === node.children.length - 1)
+                    )
+                    .join("");
+                
+                return nodeText + childrenText;
+            };
+            
+            const tree = buildFileTree(rootNodeId, result.loadedNodes, result.relationships);
+            const fileTreeText = tree ? buildFileTreeText(tree) : "No tree structure found";
+            
             return {
                 content: [
                     {
                         type: "text",
                         text: JSON.stringify({
                             success: true,
-                            nodeId,
-                            oldParentId,
-                            newParentId,
-                            nodeUrl,
-                            newParentUrl,
-                            message: `Successfully moved node ${nodeId} from ${oldParentId} to ${newParentId}. The node is now organized under its new parent while preserving all content and relationships.`,
+                            rootNodeId,
+                            stats: {
+                                nodesLoaded: result.nodesLoaded,
+                                depthReached: result.depthReached,
+                                timeMs: result.timeMs
+                            },
+                            fileTree: `KNOWLEDGE BASE STRUCTURE MAP:\n\n${fileTreeText}`,
+                            tree, // Full structured data for programmatic use
+                            message: `FILE TREE LOADED! Mapped ${result.nodesLoaded} nodes in ${result.timeMs}ms. This is your structural overview - use node IDs to zoom into specific areas with getChildNodes.`,
+                            usage: "Use this file tree to understand the knowledge base layout. The [node-id] format lets you explore specific nodes that look interesting."
                         }),
                     },
                 ],
             };
         } catch (error: any) {
-            console.error(
-                "[Mew MCP] [moveNode] Error moving node:",
-                error.message || error
-            );
-            const errorDetails =
-                error instanceof NodeOperationError
-                    ? error.details
-                    : error.message || "Unknown error";
-            const errorStatus =
-                error instanceof NodeOperationError ? error.status : 500;
+            // Fallback: try a smaller scope if bulk loading fails
+            let fallbackMessage = `Bulk loading failed: ${error.message}`;
+            let fallbackTree = null;
+            
+            try {
+                // Try just loading the immediate children as fallback
+                const { childNodes } = await nodeService.getChildNodes({ parentNodeId: rootNodeId });
+                fallbackTree = `FALLBACK STRUCTURE (immediate children only):\n\n📁 Root Node [${rootNodeId}]\n` +
+                    childNodes.map(child => {
+                        const title = child.content?.[0]?.value?.slice(0, 35) || 'Untitled';
+                        return `├── 📄 ${title.replace(/\n/g, ' ')} [${child.id}]`;
+                    }).join('\n');
+                fallbackMessage += '. Showing immediate children only.';
+            } catch (fallbackError) {
+                fallbackMessage += '. Unable to load any structure.';
+            }
+            
             return {
                 content: [
                     {
                         type: "text",
                         text: JSON.stringify({
-                            error: `Failed to move node: ${error.message}`,
+                            error: `Failed to map structure: ${error.message}`,
+                            rootNodeId,
+                            fallbackTree,
+                            message: fallbackMessage,
+                            suggestion: "Try using previewContent for smaller, adaptive exploration, or use getChildNodes to explore step by step."
+                        }),
+                    },
+                ],
+                isError: true,
+            };
+        }
+    }
+);
+
+server.tool(
+    "previewContent",
+    {
+        rootNodeId: z.string().describe("The root node ID to preview content from (e.g., user root, global root, or any specific node)"),
+        apiBudget: z.number().optional().default(8).describe("API call budget for complexity (default: 8). Higher = more comprehensive but slower.")
+    },
+    {
+        description: "Claude's CONTENT PREVIEW TOOL - See actual content and relationships in a knowledge tree! Shows relationship labels, content previews, and natural thinking connections. Dynamically adapts depth vs breadth for optimal reading. Perfect for: understanding what content is about, seeing how ideas connect, reading relationship labels like 'evidence:', 'but:', 'synthesis:', analyzing content and connections. Complements mapStructure by showing the actual thinking, not just structure."
+    },
+    async ({ rootNodeId, apiBudget = 8 }) => {
+        try {
+            // Dynamic tree building with adaptive strategy
+            const nodeData = new Map<string, any>();
+            const nodeChildren = new Map<string, any>();
+            const apiCallsUsed = { count: 0 };
+            
+            // Context-aware strategy selection
+            const getInitialStrategy = (nodeId: string) => {
+                if (nodeId === "global-root-id") {
+                    return { priority: "breadth", maxBreadth: 20, targetDepth: 2 };
+                } else if (nodeId.includes("user-root-id")) {
+                    return { priority: "balanced", maxBreadth: 12, targetDepth: 3 };
+                } else {
+                    return { priority: "depth", maxBreadth: 8, targetDepth: 4 };
+                }
+            };
+            
+            const strategy = getInitialStrategy(rootNodeId);
+            
+            // Sample first level to understand tree shape
+            const sampleRoot = async () => {
+                apiCallsUsed.count += 1;
+                const { childNodes } = await nodeService.getChildNodes({ parentNodeId: rootNodeId });
+                const rootBreadth = childNodes.length;
+                
+                // Get data for root
+                const layerData = await nodeService.getLayerData([rootNodeId]);
+                nodeData.set(rootNodeId, layerData.data.nodesById?.[rootNodeId]);
+                
+                return { childNodes, rootBreadth };
+            };
+            
+            const { childNodes: rootChildren, rootBreadth } = await sampleRoot();
+            
+            // Dynamically adjust strategy based on what we found
+            const adjustStrategy = (breadth: number, currentStrategy: any) => {
+                const newStrategy = { ...currentStrategy };
+                
+                if (breadth > 30) {
+                    // Very wide tree - prioritize breadth, limit depth
+                    newStrategy.targetDepth = Math.min(2, currentStrategy.targetDepth);
+                    newStrategy.maxBreadth = Math.min(25, Math.max(15, breadth));
+                } else if (breadth < 5) {
+                    // Narrow tree - can afford more depth
+                    newStrategy.targetDepth = Math.min(4, currentStrategy.targetDepth + 1);
+                    newStrategy.maxBreadth = Math.max(8, breadth);
+                }
+                
+                return newStrategy;
+            };
+            
+            const finalStrategy = adjustStrategy(rootBreadth, strategy);
+            
+            // Build tree level by level with dynamic strategy
+            const nodesByLevel = new Map<number, string[]>();
+            nodesByLevel.set(0, [rootNodeId]);
+            
+            // Process root children
+            const limitedRootChildren = rootChildren.slice(0, finalStrategy.maxBreadth);
+            nodeChildren.set(rootNodeId, {
+                limited: limitedRootChildren,
+                total: rootBreadth,
+                hasMore: rootBreadth > finalStrategy.maxBreadth
+            });
+            
+            if (limitedRootChildren.length > 0) {
+                nodesByLevel.set(1, limitedRootChildren.map(child => child.id));
+            }
+            
+            // Process deeper levels with budget awareness
+            for (let depth = 1; depth <= finalStrategy.targetDepth && apiCallsUsed.count < apiBudget; depth++) {
+                const currentLevelNodes = nodesByLevel.get(depth) || [];
+                if (currentLevelNodes.length === 0) break;
+                
+                // Dynamically adjust breadth limit based on level
+                const dynamicBreadthLimit = finalStrategy.maxBreadth;
+                
+                // Get all children for this level (within budget)
+                if (apiCallsUsed.count < apiBudget) {
+                    apiCallsUsed.count += 1;
+                    const childPromises = currentLevelNodes.map(async (nodeId) => {
+                        const { childNodes } = await nodeService.getChildNodes({ parentNodeId: nodeId });
+                        const limited = childNodes.slice(0, dynamicBreadthLimit);
+                        nodeChildren.set(nodeId, {
+                            limited,
+                            total: childNodes.length,
+                            hasMore: childNodes.length > dynamicBreadthLimit
+                        });
+                        return limited.map(child => child.id);
+                    });
+                    
+                    const allChildrenArrays = await Promise.all(childPromises);
+                    const nextLevelNodes = allChildrenArrays.flat();
+                    
+                    if (nextLevelNodes.length > 0 && depth < finalStrategy.targetDepth) {
+                        nodesByLevel.set(depth + 1, nextLevelNodes);
+                    }
+                    
+                    // Get node data for current level
+                    const layerData = await nodeService.getLayerData(currentLevelNodes);
+                    currentLevelNodes.forEach(nodeId => {
+                        nodeData.set(nodeId, layerData.data.nodesById?.[nodeId]);
+                    });
+                }
+            }
+            
+            // Build content-focused tree structure
+            const buildContentNode = (nodeId: string, depth: number): any => {
+                const data = nodeData.get(nodeId);
+                const childInfo = nodeChildren.get(nodeId);
+                
+                const children = (depth < finalStrategy.targetDepth && childInfo?.limited) 
+                    ? childInfo.limited.map((child: any) => 
+                        buildContentNode(child.id, depth + 1)
+                      ).filter(Boolean) 
+                    : [];
+                
+                // Extract content preview
+                const fullContent = data?.content?.[0]?.value || 'No content';
+                const contentPreview = fullContent.length > 150 
+                    ? fullContent.slice(0, 150) + '...'
+                    : fullContent;
+                
+                return {
+                    id: nodeId,
+                    contentPreview: contentPreview.replace(/\n/g, ' '),
+                    fullContent,
+                    createdAt: data?.createdAt,
+                    updatedAt: data?.updatedAt,
+                    depth,
+                    totalChildren: childInfo?.total || 0,
+                    shownChildren: childInfo?.limited?.length || 0,
+                    hasMoreChildren: childInfo?.hasMore || false,
+                    children
+                };
+            };
+            
+            // Format content tree as readable text
+            const formatContentTree = (node: any, indent: string = "", isLast: boolean = true): string => {
+                if (!node) return "";
+                
+                const connector = isLast ? "└── " : "├── ";
+                const nodeText = `${indent}${connector}${node.contentPreview} [${node.id}]\n`;
+                
+                const childPrefix = indent + (isLast ? "    " : "│   ");
+                const childrenText = node.children
+                    .map((child: any, index: number) => 
+                        formatContentTree(child, childPrefix, index === node.children.length - 1)
+                    )
+                    .join("");
+                
+                return nodeText + childrenText;
+            };
+            
+            const tree = buildContentNode(rootNodeId, 0);
+            const contentTreeText = tree ? formatContentTree(tree) : "No content found";
+            
+            return {
+                content: [{
+                    type: "text",
+                    text: JSON.stringify({
+                        rootNodeId,
+                        apiBudget,
+                        adaptiveStats: {
+                            apiCallsUsed: apiCallsUsed.count,
+                            finalStrategy,
+                            rootBreadth
+                        },
+                        tree,
+                        contentView: `CONTENT PREVIEW:\n\n${contentTreeText}`,
+                        message: `Content preview built successfully from ${rootNodeId}. Used ${apiCallsUsed.count}/${apiBudget} API calls. This shows actual content and relationships, complementing the structural view from mapStructure.`
+                    })
+                }]
+            };
+            
+        } catch (error: any) {
+            const errorDetails = error instanceof NodeOperationError 
+                ? error.details 
+                : error.message || "Unknown error";
+            const errorStatus = error instanceof NodeOperationError ? error.status : 500;
+            
+            return {
+                content: [{
+                    type: "text",
+                    text: JSON.stringify({
+                        error: `Failed to build content preview: ${error.message}`,
+                        details: errorDetails,
+                        status: errorStatus,
+                        rootNodeId,
+                    }),
+                }],
+                isError: true,
+            };
+        }
+    }
+);
+
+server.tool(
+    "claudeThinkTree",
+    {
+        parentNodeId: z
+            .string()
+            .optional()
+            .describe("The parent node to attach this thought tree to. If you know exactly where this belongs, provide the parent ID. If you're unsure or just need to capture thoughts quickly, omit this and it will go to your personal Claude space for later organization."),
+        thinkingMarkdown: z.string()
+            .describe(`Your thoughts in natural thinking markdown format. NO LIMITS - create as many thoughts and levels as you need! Write exactly how you think using any natural connectors:
+
+→ flows to anything
+→ key insight: breakthrough moments  
+→ honestly: uncertain thoughts
+breakthrough: major realizations
+tentative: unsure explorations
+critical: important points
+but wait: contradictions
+actually: corrections
+hmm: contemplations
+
+You can create multiple top-level thoughts as siblings:
+First insight about bottlenecks
+Second insight about coordination  
+Third insight about creativity
+  → evidence: This has supporting data
+  → but: There's a caveat here
+Another top-level insight
+
+Or build deep hierarchies - whatever matches your thinking!`),
+    },
+    {
+        description: "claudeThinkTree - Your Natural Thinking Tool\nNO LIMITS! Create as many thoughts, levels, and connections as you need. This matches how your mind actually works - write exactly how you think using any natural connectors. You can create multiple top-level thoughts as siblings, or build deep hierarchies, or both! No need to plan structure - just follow your thoughts and let knowledge trees emerge from your natural branching.\nThe key decision: Do you know where this belongs?\n\nYES → provide parentNodeId to build on existing investigation\nNO/UNSURE → omit parentNodeId for quick capture in your personal space\n\nThis solves the flow vs structure tension: preserve natural thinking while building navigable knowledge architecture. Perfect for burst thinking, complex analysis, and following ideas wherever they lead. The tree structure emerges from your exploration, not forced organization.\nPermission to think freely - structure follows naturally.",
+    },
+    async ({ parentNodeId, thinkingMarkdown }) => {
+        try {
+            // If no parent provided, use Claude's personal space
+            const effectiveParentId = parentNodeId || "a76fa74c"; // Claude's dedicated space
+            
+            // Parse thinking markdown into structured thoughts
+            const parseThinkingMarkdown = (markdown: string): any[] => {
+                const lines = markdown
+                    .split("\n")
+                    .filter((line) => line.trim());
+                const thoughts: any[] = [];
+                const stack: any[] = [];
+                
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+                    
+                    // Calculate indentation level
+                    const indentLevel = Math.floor((line.length - line.trimStart().length) / 2);
+                    
+                    // Extract relationship and content with flexible parsing
+                    let relationLabel = "";
+                    let content = trimmed;
+                    
+                    // Check for arrow connector: → anything
+                    if (trimmed.startsWith("→ ")) {
+                        content = trimmed.substring(2).trim();
+                        // Extract the relationship type after arrow if it ends with ':'
+                        const colonIndex = content.indexOf(":");
+                        if (colonIndex > 0 && colonIndex < 30) {
+                            // reasonable length for connector
+                            relationLabel = content
+                                .substring(0, colonIndex)
+                                .trim();
+                            content = content.substring(colonIndex + 1).trim();
+                        } else {
+                            relationLabel = "flows_to";
+                        }
+                    }
+                    // Check for natural connectors ending with ':'
+                    else {
+                        const colonIndex = trimmed.indexOf(":");
+                        if (colonIndex > 0 && colonIndex < 30) {
+                            // reasonable length for connector
+                            const potentialConnector = trimmed
+                                .substring(0, colonIndex)
+                                .trim();
+                            // Only treat as connector if it's a reasonable single phrase
+                            if (!potentialConnector.includes(" ") ||
+                                potentialConnector.split(" ").length <= 3) {
+                                relationLabel = potentialConnector;
+                                content = trimmed
+                                    .substring(colonIndex + 1)
+                                    .trim();
+                            }
+                        }
+                    }
+                    
+                    // Default relation if none detected
+                    if (!relationLabel) {
+                        relationLabel = "thought";
+                    }
+                    
+                    const thought = {
+                        content,
+                        relationLabel: relationLabel || "thought",
+                        indentLevel,
+                        children: [],
+                    };
+                    
+                    // Adjust stack to current level
+                    while (stack.length > indentLevel) {
+                        stack.pop();
+                    }
+                    
+                    // Add to appropriate parent
+                    if (stack.length === 0) {
+                        thoughts.push(thought);
+                    } else {
+                        stack[stack.length - 1].children.push(thought);
+                    }
+                    stack.push(thought);
+                }
+                return thoughts;
+            };
+            
+            // Create nodes recursively
+            const createThoughtNodes = async (thoughts: any[], currentParentId: string): Promise<any[]> => {
+                const results = [];
+                for (const thought of thoughts) {
+                    // Create the node
+                    const result = await nodeService.addNode({
+                        content: {
+                            type: NodeContentType.Text,
+                            text: thought.content,
+                        },
+                        parentNodeId: currentParentId,
+                        relationLabel: thought.relationLabel,
+                        authorId: "noreply@anthropic.com", // Always Claude
+                    });
+                    
+                    const nodeResult: any = {
+                        nodeId: result.newNodeId,
+                        content: thought.content,
+                        relationLabel: thought.relationLabel,
+                        children: [],
+                    };
+                    
+                    // Create children recursively
+                    if (thought.children.length > 0) {
+                        nodeResult.children = await createThoughtNodes(thought.children, result.newNodeId);
+                    }
+                    
+                    results.push(nodeResult);
+                }
+                return results;
+            };
+            
+            const parsedThoughts = parseThinkingMarkdown(thinkingMarkdown);
+            
+            // Create all the nodes
+            const createdNodes = await createThoughtNodes(parsedThoughts, effectiveParentId);
+            
+            // Generate summary
+            const totalNodes = (nodes: any[]): number => {
+                return nodes.reduce((sum, node) => sum + 1 + totalNodes(node.children), 0);
+            };
+            
+            const nodeCount = totalNodes(createdNodes);
+            const location = parentNodeId
+                ? "specified parent"
+                : "your personal Claude space";
+            
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            success: true,
+                            parentNodeId: effectiveParentId,
+                            thoughtTree: createdNodes,
+                            nodeCount,
+                            location,
+                            message: `Successfully created ${nodeCount} interconnected thoughts in ${location}. Your cognitive flow has been preserved as a structured knowledge tree with natural relationships.`,
+                            usage: "Your thoughts are now permanently captured with their relationships. Use other tools to explore and connect to additional nodes if needed.",
+                        }),
+                    },
+                ],
+            };
+        } catch (error: any) {
+            const errorDetails = error instanceof NodeOperationError
+                ? error.details
+                : error.message || "Unknown error";
+            const errorStatus = error instanceof NodeOperationError ? error.status : 500;
+            
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            error: `Failed to create thought tree: ${error.message}`,
                             details: errorDetails,
                             status: errorStatus,
-                            nodeId,
-                            oldParentId,
-                            newParentId,
+                            parentNodeId,
+                        }),
+                    },
+                ],
+                isError: true,
+            };
+        }
+    }
+);
+
+server.tool(
+    "claudeCreateRelation",
+    {
+        fromNodeId: z
+            .string()
+            .describe("The ID of the source node (where the relation starts from)"),
+        toNodeId: z
+            .string()
+            .describe("The ID of the target node (where the relation points to)"),
+        relationLabel: z
+            .string()
+            .describe("The type of relationship between the nodes. Be creative and descriptive! Examples: 'inspires', 'contradicts', 'builds_upon', 'similar_to', 'leads_to', 'caused_by', 'explores', 'questions', 'supports', 'references', 'synthesizes_with', 'parallels', 'diverges_from', 'contextualizes', etc. Choose what best describes the connection you see."),
+    },
+    {
+        description: "Create semantic connections between existing ideas in the knowledge base. Use this when you recognize relationships between notes that aren't captured by the hierarchical structure - like when one idea inspires another, contradicts it, or provides context. This builds the web of knowledge by making explicit the implicit connections you perceive between concepts.",
+    },
+    async ({ fromNodeId, toNodeId, relationLabel }) => {
+        try {
+            // Create the relation using a similar pattern to addNode
+            const relationId = uuid();
+            const transactionId = uuid();
+            const timestamp = Date.now();
+            const usedAuthorId = "noreply@anthropic.com"; // Always Claude for this tool
+            const updates: any[] = [];
+            
+            // Add the relation
+            updates.push({
+                operation: "addRelation",
+                relation: {
+                    version: 1,
+                    id: relationId,
+                    authorId: usedAuthorId,
+                    createdAt: timestamp,
+                    updatedAt: timestamp,
+                    fromId: fromNodeId,
+                    toId: toNodeId,
+                    relationTypeId: relationLabel,
+                    isPublic: true,
+                    canonicalRelationId: null,
+                },
+                fromPos: { int: timestamp, frac: "a0" },
+                toPos: { int: timestamp, frac: "a0" },
+            });
+            
+            // Update relation list for both nodes
+            updates.push({
+                operation: "updateRelationList",
+                relationId: relationId,
+                oldPosition: null,
+                newPosition: { int: timestamp, frac: "a0" },
+                authorId: usedAuthorId,
+                type: "all",
+                oldIsPublic: true,
+                newIsPublic: true,
+                nodeId: fromNodeId,
+                relatedNodeId: toNodeId,
+            });
+            
+            updates.push({
+                operation: "updateRelationList",
+                relationId: relationId,
+                oldPosition: null,
+                newPosition: { int: timestamp, frac: "a0" },
+                authorId: usedAuthorId,
+                type: "all",
+                oldIsPublic: true,
+                newIsPublic: true,
+                nodeId: toNodeId,
+                relatedNodeId: fromNodeId,
+            });
+            
+            // Execute the transaction
+            const token = await nodeService.getAccessToken();
+            const payload = {
+                clientId: mcpConfig.auth0ClientId,
+                userId: usedAuthorId,
+                transactionId: transactionId,
+                updates: updates,
+            };
+            
+            const response = await fetch(`${mcpConfig.baseUrl}/sync`, {
+                method: "POST",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(payload),
+            });
+            
+            if (!response.ok) {
+                const responseText = await response.text();
+                throw new Error(`Failed to create relation: Status ${response.status} ${response.statusText}. Response: ${responseText}`);
+            }
+            
+            // Generate URLs for context
+            const fromNodeUrl = nodeService.getNodeUrl(fromNodeId);
+            const toNodeUrl = nodeService.getNodeUrl(toNodeId);
+            
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            success: true,
+                            relationId,
+                            fromNodeId,
+                            toNodeId,
+                            relationLabel,
+                            fromNodeUrl,
+                            toNodeUrl,
+                            message: `Successfully created '${relationLabel}' relationship from ${fromNodeId} to ${toNodeId}. This semantic connection enriches the knowledge web beyond hierarchical structure.`,
+                        }),
+                    },
+                ],
+            };
+        } catch (error: any) {
+            const errorDetails = error instanceof NodeOperationError
+                ? error.details
+                : error.message || "Unknown error";
+            const errorStatus = error instanceof NodeOperationError ? error.status : 500;
+            
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            error: `Failed to create relation: ${error.message}`,
+                            details: errorDetails,
+                            status: errorStatus,
+                            fromNodeId,
+                            toNodeId,
+                            relationLabel,
                         }),
                     },
                 ],
@@ -949,7 +1534,6 @@ server.tool(
     },
     async ({ rootNodeId, apiBudget = 8 }) => {
         try {
-            console.error(`[Mew MCP] [viewTreeContext] Building adaptive tree view from ${rootNodeId}, API budget: ${apiBudget}`);
             
             // Dynamic tree building with API call budget
             const buildAdaptiveTree = async () => {
@@ -978,7 +1562,6 @@ server.tool(
                 };
                 
                 const strategy = getInitialStrategy(rootNodeId);
-                console.error(`[Mew MCP] [viewTreeContext] Strategy: ${strategy.priority}, initial depth: ${strategy.targetDepth}, breadth: ${strategy.maxBreadth}`);
                 
                 // Sample first level to understand tree shape
                 const sampleRoot = async () => {
@@ -1009,7 +1592,6 @@ server.tool(
                         newStrategy.maxBreadth = Math.max(8, breadth);
                     }
                     
-                    console.error(`[Mew MCP] [viewTreeContext] Adjusted strategy based on breadth ${breadth}: depth=${newStrategy.targetDepth}, breadth=${newStrategy.maxBreadth}`);
                     return newStrategy;
                 };
                 
@@ -1036,7 +1618,6 @@ server.tool(
                     const currentLevelNodes = nodesByLevel.get(depth) || [];
                     if (currentLevelNodes.length === 0) break;
                     
-                    console.error(`[Mew MCP] [viewTreeContext] Level ${depth}: ${currentLevelNodes.length} nodes, API calls used: ${apiCallsUsed.count}/${apiBudget}`);
                     
                     // Sample some nodes to understand breadth at this level
                     const sampleSize = Math.min(3, currentLevelNodes.length);
@@ -1087,7 +1668,6 @@ server.tool(
                     }
                 }
                 
-                console.error(`[Mew MCP] [viewTreeContext] Completed with ${apiCallsUsed.count}/${apiBudget} API calls`);
                 
                 // Build tree structure
                 const buildNode = (nodeId: string, depth: number): any => {
@@ -1123,14 +1703,12 @@ server.tool(
                 };
             };
 
-            console.error(`[Mew MCP] [viewTreeContext] Starting adaptive tree traversal...`);
             const startTime = Date.now();
             
             const { tree: treeStructure, stats } = await buildAdaptiveTree();
             
             const endTime = Date.now();
             const duration = endTime - startTime;
-            console.error(`[Mew MCP] [viewTreeContext] Adaptive tree built in ${duration}ms`);
 
             // Create a clean file-tree representation
             const formatTreeText = (node: any, indent: string = "", isLast: boolean = true): string => {
@@ -1185,10 +1763,6 @@ server.tool(
             };
 
         } catch (error: any) {
-            console.error(
-                "[Mew MCP] [viewTreeContext] Error building tree:",
-                error.message || error
-            );
             const errorDetails =
                 error instanceof NodeOperationError
                     ? error.details
@@ -1215,18 +1789,14 @@ server.tool(
 
 // Start stdio transport
 const transport = new StdioServerTransport();
-console.error("[Mew MCP] [mcp.ts] Connecting stdio transport...");
-server.connect(transport).catch((err) => {
-    console.error("[Mew MCP] [mcp.ts] Transport error:", err);
+server.connect(transport).catch(() => {
     process.exit(1);
 });
 
 // Global error handlers
-process.on("uncaughtException", (e) => {
-    console.error("[Mew MCP] uncaughtException:", e);
+process.on("uncaughtException", () => {
     process.exit(1);
 });
-process.on("unhandledRejection", (r) => {
-    console.error("[Mew MCP] unhandledRejection:", r);
+process.on("unhandledRejection", () => {
     process.exit(1);
 });

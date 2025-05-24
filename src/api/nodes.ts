@@ -44,9 +44,6 @@ export class NodeService extends AuthService {
             throw new InvalidUserIdFormatError(userId);
         }
         this.currentUserId = userId;
-        console.error(
-            `[NodeService] Current User ID set to: ${this.currentUserId}`
-        ); // Clearer log to stderr
     }
 
     /**
@@ -211,7 +208,6 @@ export class NodeService extends AuthService {
         nodeId: string,
         updates: Partial<GraphNode>
     ): Promise<void> {
-        const startTime = Date.now();
         try {
             const token = await this.getAccessToken();
             const transactionId = uuid();
@@ -276,11 +272,6 @@ export class NodeService extends AuthService {
                 }
             });
         } catch (error) {
-            console.error("Failed to update node", {
-                nodeId,
-                duration: Date.now() - startTime,
-                error: error instanceof Error ? error.message : "Unknown error",
-            });
             throw error;
         }
     }
@@ -298,9 +289,6 @@ export class NodeService extends AuthService {
         const existingNode = layerData.data.nodesById[nodeId] as GraphNode;
 
         if (!existingNode) {
-            console.warn(
-                `[NodeService] Node with ID ${nodeId} not found for deletion. Skipping.`
-            );
             return;
         }
 
@@ -359,10 +347,6 @@ export class NodeService extends AuthService {
         referenceCanonicalRelationId: string;
         isChecked?: boolean;
     }> {
-        // Log entry into addNode with full input
-        console.error(
-            `[NodeService] addNode called with input: ${JSON.stringify(input)}`
-        );
         const { content, parentNodeId, relationLabel, isChecked, authorId } =
             input;
         const nodeContent = createNodeContent(content);
@@ -567,22 +551,6 @@ export class NodeService extends AuthService {
             updates: updates,
         };
 
-        // Detailed logging of payload and computed identifiers
-        const effectiveParentNodeId =
-            parentNodeId ?? this.config.userRootNodeId; // Determine the parent ID being used
-        console.error(
-            "[NodeService] Attempting to add node via /sync with payload (raw):",
-            payload
-        );
-        console.error(
-            `[NodeService] addNode Details: newNodeId: ${newNodeId}, effectiveParentNodeId: ${effectiveParentNodeId}, usedAuthorId: ${usedAuthorId} (this is the author of the node & transaction). Node content type: ${content.type}`
-        );
-        console.error(
-            `[NodeService] Target Parent Node for new node '${newNodeId}': ${effectiveParentNodeId}. Configured User Root Node ID is: ${this.config.userRootNodeId}. Specified parentNodeId in call was: ${parentNodeId || "not specified (will use default)"}.`
-        );
-        console.error(
-            `[NodeService] Generated URL for new node (if successful) would be: ${this.getNodeUrl(newNodeId)}`
-        );
 
         await this.requestQueue.enqueue(async () => {
             const response = await fetch(`${this.config.baseUrl}/sync`, {
@@ -743,14 +711,112 @@ export class NodeService extends AuthService {
         if (!txResponse.ok) {
             const responseText = await txResponse.text();
             const errMsg = `Failed to move node: Status ${txResponse.status} ${txResponse.statusText}. Response: ${responseText}`;
-            console.error(errMsg);
-            console.error("Request payload was:", payload);
             throw new Error(errMsg);
         }
 
-        console.log(
-            `Successfully moved node ${nodeId} from parent ${oldParentId} to parent ${newParentId}`
-        );
+    }
+
+    /**
+     * Bulk expansion method for Claude - loads massive trees for context
+     * @param rootNodeIds Array of root node IDs to expand from
+     * @returns Object containing loaded nodes, relationships, and stats
+     */
+    async bulkExpandForClaude(rootNodeIds: string[] = []): Promise<{
+        nodesLoaded: number;
+        depthReached: number;
+        timeMs: number;
+        loadedNodes: Map<string, any>;
+        relationships: Map<string, string[]>;
+    }> {
+        const startTime = Date.now();
+        if (rootNodeIds.length === 0) return {
+            nodesLoaded: 0,
+            depthReached: 0,
+            timeMs: 0,
+            loadedNodes: new Map(),
+            relationships: new Map()
+        };
+
+        // CLAUDE'S AGGRESSIVE PARAMETERS - optimized for maximum context
+        const CLAUDE_MAX_DEPTH = 12;
+        const CLAUDE_MAX_BREADTH = 200;
+        const MAX_TOTAL_NODES = 2000; // Safety limit to prevent memory issues
+
+        try {
+            // BFS discovery - collect ALL node IDs we want to load
+            const allNodeIds = new Set(rootNodeIds);
+            const relationships = new Map<string, string[]>();
+            let currentLevel = [...rootNodeIds];
+            
+            // Mark root nodes as having no children initially
+            currentLevel.forEach(nodeId => relationships.set(nodeId, []));
+
+            // BFS expansion to discover the entire tree structure
+            for (let depth = 0; depth < CLAUDE_MAX_DEPTH && currentLevel.length > 0 && allNodeIds.size < MAX_TOTAL_NODES; depth++) {
+                const nextLevel: string[] = [];
+                
+                // Get layer data for current level to find all their children
+                if (currentLevel.length > 0) {
+                    const layerData = await this.getLayerData(currentLevel);
+                    
+                    // Process each node in current level
+                    for (const nodeId of currentLevel) {
+                        const childRelations = Object.values(layerData.data.relationsById || {}).filter(
+                            (relation: any) => relation &&
+                                relation.fromId === nodeId &&
+                                relation.relationTypeId === "child"
+                        ).slice(0, CLAUDE_MAX_BREADTH); // Limit breadth per node
+                        
+                        const childIds = childRelations.map((rel: any) => rel.toId);
+                        relationships.set(nodeId, childIds);
+                        
+                        // Add children to discovery sets with safety checks
+                        childIds.forEach(childId => {
+                            if (!allNodeIds.has(childId) && allNodeIds.size < MAX_TOTAL_NODES) {
+                                allNodeIds.add(childId);
+                                nextLevel.push(childId);
+                            }
+                        });
+                    }
+                }
+                currentLevel = nextLevel;
+            }
+
+            // MEGA BULK LOAD - get ALL discovered nodes in one massive call
+            const allNodeIdsArray = Array.from(allNodeIds);
+            const finalLayerData = await this.getLayerData(allNodeIdsArray);
+            
+            // Build the loaded nodes map
+            const loadedNodes = new Map<string, any>();
+            Object.entries(finalLayerData.data.nodesById || {}).forEach(([nodeId, nodeData]) => {
+                if (nodeData) {
+                    loadedNodes.set(nodeId, nodeData);
+                }
+            });
+
+            return {
+                nodesLoaded: loadedNodes.size,
+                depthReached: CLAUDE_MAX_DEPTH,
+                timeMs: Date.now() - startTime,
+                loadedNodes,
+                relationships
+            };
+        } catch (error) {
+            // Fallback: just load the root nodes
+            const layerData = await this.getLayerData(rootNodeIds);
+            const loadedNodes = new Map<string, any>();
+            Object.entries(layerData.data.nodesById || {}).forEach(([nodeId, nodeData]) => {
+                if (nodeData) loadedNodes.set(nodeId, nodeData);
+            });
+            
+            return {
+                nodesLoaded: loadedNodes.size,
+                depthReached: 1,
+                timeMs: Date.now() - startTime,
+                loadedNodes,
+                relationships: new Map()
+            };
+        }
     }
 
     /**
@@ -760,9 +826,6 @@ export class NodeService extends AuthService {
      */
     getNodeUrl(nodeId: string): string {
         if (!this.currentUserId) {
-            console.warn(
-                "[NodeService] getNodeUrl called before currentUserId is set. URL might be incorrect."
-            );
             return `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-unknown/user-root-id-unknown`;
         }
         return `${this.config.baseNodeUrl}g/all/global-root-to-users/all/users-to-user-relation-id-${encodeURIComponent(this.currentUserId)}/user-root-id-${encodeURIComponent(this.currentUserId)}/node-${encodeURIComponent(nodeId)}`;
@@ -786,11 +849,6 @@ export class NodeService extends AuthService {
                 // Decode URI component to handle any special characters in the nodeId
                 decodedNodeId = decodeURIComponent(decodedNodeId);
             } catch (e) {
-                console.error(
-                    "[NodeService] Error decoding node ID from URL part:",
-                    match[1],
-                    e
-                );
                 // Fallback to using the raw match if decoding fails, or re-throw
                 // For now, we'll use the raw match as a best effort.
             }
@@ -798,10 +856,6 @@ export class NodeService extends AuthService {
             decodedNodeId = decodedNodeId.replace(/%7C/gi, "|");
             return decodedNodeId;
         } else {
-            console.error(
-                "[NodeService] Invalid node URL format or nodeId not found in URL:",
-                url
-            );
             throw new Error(
                 "Invalid node URL format or nodeId not found in URL."
             );
