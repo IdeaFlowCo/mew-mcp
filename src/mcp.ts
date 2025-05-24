@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-
-
 import dotenv from "dotenv";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -64,7 +62,7 @@ try {
 // Create the MCP server
 const server = new McpServer({
     name: "mew-mcp",
-    version: "1.1.48",
+    version: "1.1.49",
     description:
         "Mew Knowledge Base - A hierarchical graph that lets humans and AI build connected, searchable knowledge together. Each user has key collections under their root: My Stream (capture inbox), My Templates (reusable patterns), My Favorites (bookmarks), My Highlights (web clips), My Hashtags (organization).",
 });
@@ -246,7 +244,6 @@ server.tool(
             ? getAuthorId(authorModel)
             : authorId;
 
-
         try {
             // Pass content directly if it matches NodeContent, otherwise wrap it if it's just text like in the log example
             const nodeContentForService =
@@ -353,8 +350,7 @@ server.tool(
                     const layerData = await nodeService.getLayerData([nodeId]);
                     nodeContent = layerData.data.nodesById?.[nodeId] || null;
                 }
-            } catch (error) {
-            }
+            } catch (error) {}
 
             return {
                 content: [
@@ -387,7 +383,6 @@ server.tool(
         }
     }
 );
-
 
 server.tool(
     "getGlobalNotes",
@@ -580,7 +575,7 @@ server.tool(
                             notes: notesWithMetadata,
                             totalCount: notesWithMetadata.length,
                             message:
-                                "These are YOUR notes, Claude! Each note may have children. Use getChildNodes to explore notes with hasChildren=true."
+                                "These are YOUR notes, Claude! Each note may have children. Use getChildNodes to explore notes with hasChildren=true.",
                         }),
                     },
                 ],
@@ -723,16 +718,24 @@ server.tool(
     "moveNodes",
     {
         moves: z
-            .array(z.object({
-                nodeId: z.string().describe("The ID of the node to move"),
-                oldParentId: z
-                    .string()
-                    .describe("The current parent ID where the node is located"),
-                newParentId: z
-                    .string()
-                    .describe("The new parent ID where you want to move the node"),
-            }))
-            .describe("Array of node moves to perform. Each move specifies a node to relocate from one parent to another."),
+            .array(
+                z.object({
+                    nodeId: z.string().describe("The ID of the node to move"),
+                    oldParentId: z
+                        .string()
+                        .describe(
+                            "The current parent ID where the node is located"
+                        ),
+                    newParentId: z
+                        .string()
+                        .describe(
+                            "The new parent ID where you want to move the node"
+                        ),
+                })
+            )
+            .describe(
+                "Array of node moves to perform. Each move specifies a node to relocate from one parent to another."
+            ),
     },
     {
         description:
@@ -742,11 +745,15 @@ server.tool(
         try {
             const results = [];
             const errors = [];
-            
+
             // Process each move
             for (const move of moves) {
                 try {
-                    await nodeService.moveNode(move.nodeId, move.oldParentId, move.newParentId);
+                    await nodeService.moveNode(
+                        move.nodeId,
+                        move.oldParentId,
+                        move.newParentId
+                    );
                     results.push({
                         success: true,
                         nodeId: move.nodeId,
@@ -762,108 +769,142 @@ server.tool(
                     });
                 }
             }
-            
+
             const successCount = results.length;
             const errorCount = errors.length;
-            
+
             // If we had successful moves, automatically generate a structure map for Claude's clarity
             let structureUpdate = null;
             if (successCount > 0) {
                 try {
                     // Find the most relevant parent to map (use the most common newParentId)
                     const parentCounts = new Map<string, number>();
-                    results.forEach(result => {
+                    results.forEach((result) => {
                         const count = parentCounts.get(result.newParentId) || 0;
                         parentCounts.set(result.newParentId, count + 1);
                     });
-                    
+
                     // Get the parent with the most moves (primary reorganization target)
-                    const primaryParent = Array.from(parentCounts.entries())
-                        .sort((a, b) => b[1] - a[1])[0][0];
-                    
+                    const primaryParent = Array.from(
+                        parentCounts.entries()
+                    ).sort((a, b) => b[1] - a[1])[0][0];
+
                     // Generate structure map of the primary affected area
-                    const bulkResult = await nodeService.bulkExpandForClaude([primaryParent]);
-                    
+                    const bulkResult = await nodeService.bulkExpandForClaude([
+                        primaryParent,
+                    ]);
+
                     // Build file-tree structure (reusing logic from mapStructure)
-                    const buildFileTree = (nodeId: string, loadedNodes: Map<string, any>, relationships: Map<string, string[]>, depth = 0, visited = new Set<string>()): any => {
+                    const buildFileTree = (
+                        nodeId: string,
+                        loadedNodes: Map<string, any>,
+                        relationships: Map<string, string[]>,
+                        depth = 0,
+                        visited = new Set<string>()
+                    ): any => {
                         if (visited.has(nodeId) || depth > 15) return null;
-                        
+
                         const nodeData = loadedNodes.get(nodeId);
                         if (!nodeData) return null;
-                        
+
                         const newVisited = new Set(visited);
                         newVisited.add(nodeId);
-                        
+
                         const childIds = relationships.get(nodeId) || [];
                         const children = childIds
                             .slice(0, 100)
-                            .map(childId => buildFileTree(childId, loadedNodes, relationships, depth + 1, newVisited))
+                            .map((childId) =>
+                                buildFileTree(
+                                    childId,
+                                    loadedNodes,
+                                    relationships,
+                                    depth + 1,
+                                    newVisited
+                                )
+                            )
                             .filter(Boolean);
-                        
-                        const fullText = nodeData.content?.[0]?.value || 'No content';
+
+                        const fullText =
+                            nodeData.content?.[0]?.value || "No content";
                         let title = fullText.trim();
-                        
+
                         const firstSentence = title.split(/[.!?]/)[0];
                         if (firstSentence && firstSentence.length <= 40) {
                             title = firstSentence;
                         } else {
-                            const words = title.split(' ');
-                            title = '';
+                            const words = title.split(" ");
+                            title = "";
                             for (const word of words) {
-                                if ((title + ' ' + word).length > 35) break;
-                                title += (title ? ' ' : '') + word;
+                                if ((title + " " + word).length > 35) break;
+                                title += (title ? " " : "") + word;
                             }
-                            if (title.length === 0) title = fullText.slice(0, 35);
+                            if (title.length === 0)
+                                title = fullText.slice(0, 35);
                         }
-                        title = title || 'Untitled';
-                        
+                        title = title || "Untitled";
+
                         return {
                             id: nodeId,
-                            title: title.replace(/\n/g, ' '),
+                            title: title.replace(/\n/g, " "),
                             depth,
                             childCount: childIds.length,
                             hasChildren: childIds.length > 0,
-                            children
+                            children,
                         };
                     };
-                    
-                    const buildFileTreeText = (node: any, indent = "", isLast = true): string => {
+
+                    const buildFileTreeText = (
+                        node: any,
+                        indent = "",
+                        isLast = true
+                    ): string => {
                         if (!node) return "";
-                        
+
                         const connector = isLast ? "└── " : "├── ";
                         const folder = node.hasChildren ? "📁 " : "📄 ";
                         const nodeDisplay = `${folder}${node.title} [${node.id}]`;
                         const nodeText = `${indent}${connector}${nodeDisplay}\n`;
-                        
+
                         const childPrefix = indent + (isLast ? "    " : "│   ");
                         const childrenText = node.children
-                            .map((child: any, index: number) => 
-                                buildFileTreeText(child, childPrefix, index === node.children.length - 1)
+                            .map((child: any, index: number) =>
+                                buildFileTreeText(
+                                    child,
+                                    childPrefix,
+                                    index === node.children.length - 1
+                                )
                             )
                             .join("");
-                        
+
                         return nodeText + childrenText;
                     };
-                    
-                    const tree = buildFileTree(primaryParent, bulkResult.loadedNodes, bulkResult.relationships);
-                    const fileTreeText = tree ? buildFileTreeText(tree) : "No tree structure found";
-                    
+
+                    const tree = buildFileTree(
+                        primaryParent,
+                        bulkResult.loadedNodes,
+                        bulkResult.relationships
+                    );
+                    const fileTreeText = tree
+                        ? buildFileTreeText(tree)
+                        : "No tree structure found";
+
                     structureUpdate = {
                         primaryParent,
                         nodesLoaded: bulkResult.nodesLoaded,
                         timeMs: bulkResult.timeMs,
                         fileTree: `UPDATED STRUCTURE MAP:\n\n${fileTreeText}`,
-                        message: `Structure map automatically generated for reorganized area around ${primaryParent}. ${bulkResult.nodesLoaded} nodes loaded to show the new organization.`
+                        message: `Structure map automatically generated for reorganized area around ${primaryParent}. ${bulkResult.nodesLoaded} nodes loaded to show the new organization.`,
                     };
                 } catch (mapError: any) {
                     // If structure mapping fails, that's okay - just note it
                     structureUpdate = {
                         error: `Could not generate structure map: ${mapError.message}`,
-                        suggestion: "Use mapStructure tool manually to see the reorganized structure."
+                        suggestion:
+                            "Use mapStructure tool manually to see the reorganized structure.",
                     };
                 }
             }
-            
+
             return {
                 content: [
                     {
@@ -876,20 +917,23 @@ server.tool(
                             results,
                             errors: errors.length > 0 ? errors : undefined,
                             structureUpdate,
-                            message: errorCount === 0
-                                ? `Successfully moved ${successCount} nodes in bulk reorganization. Your knowledge structure has been updated while preserving all content and relationships.${structureUpdate ? ' Structure map automatically generated below.' : ''}`
-                                : `Completed bulk move: ${successCount} successful, ${errorCount} failed. Check errors array for details.`,
+                            message:
+                                errorCount === 0
+                                    ? `Successfully moved ${successCount} nodes in bulk reorganization. Your knowledge structure has been updated while preserving all content and relationships.${structureUpdate ? " Structure map automatically generated below." : ""}`
+                                    : `Completed bulk move: ${successCount} successful, ${errorCount} failed. Check errors array for details.`,
                         }),
                     },
                 ],
                 isError: errorCount > 0,
             };
         } catch (error: any) {
-            const errorDetails = error instanceof NodeOperationError
-                ? error.details
-                : error.message || "Unknown error";
-            const errorStatus = error instanceof NodeOperationError ? error.status : 500;
-            
+            const errorDetails =
+                error instanceof NodeOperationError
+                    ? error.details
+                    : error.message || "Unknown error";
+            const errorStatus =
+                error instanceof NodeOperationError ? error.status : 500;
+
             return {
                 content: [
                     {
@@ -911,17 +955,26 @@ server.tool(
 server.tool(
     "mapStructure",
     {
-        rootNodeId: z.string().describe("The root node ID to map the structure from"),
+        rootNodeId: z
+            .string()
+            .describe("The root node ID to map the structure from"),
     },
     {
-        description: "Claude's STRUCTURE MAPPING TOOL - Get the complete structural map of a knowledge base! Loads massive trees (12 levels deep, 200+ nodes wide) showing just titles and IDs like a file explorer. Perfect for: understanding knowledge base organization, finding where things are located, planning navigation, getting the 'big picture' layout. Shows node IDs so you can use getChildNodes to zoom into specific areas. Fast bulk operation optimized for structure discovery."
+        description:
+            "Claude's STRUCTURE MAPPING TOOL - Get the complete structural map of a knowledge base! Loads massive trees (12 levels deep, 200+ nodes wide) showing just titles and IDs like a file explorer. Perfect for: understanding knowledge base organization, finding where things are located, planning navigation, getting the 'big picture' layout. Shows node IDs so you can use getChildNodes to zoom into specific areas. Fast bulk operation optimized for structure discovery.",
     },
     async ({ rootNodeId }) => {
         try {
             const result = await nodeService.bulkExpandForClaude([rootNodeId]);
-            
+
             // Build file-tree structure with cycle detection and depth limits
-            const buildFileTree = (nodeId: string, loadedNodes: Map<string, any>, relationships: Map<string, string[]>, depth = 0, visited = new Set<string>()): any => {
+            const buildFileTree = (
+                nodeId: string,
+                loadedNodes: Map<string, any>,
+                relationships: Map<string, string[]>,
+                depth = 0,
+                visited = new Set<string>()
+            ): any => {
                 // Prevent infinite recursion from cycles
                 if (visited.has(nodeId)) {
                     return {
@@ -930,10 +983,10 @@ server.tool(
                         depth,
                         childCount: 0,
                         hasChildren: false,
-                        children: []
+                        children: [],
                     };
                 }
-                
+
                 // Hard depth limit to prevent stack overflow
                 if (depth > 15) {
                     return {
@@ -942,75 +995,97 @@ server.tool(
                         depth,
                         childCount: 0,
                         hasChildren: false,
-                        children: []
+                        children: [],
                     };
                 }
-                
+
                 const nodeData = loadedNodes.get(nodeId);
                 if (!nodeData) return null;
-                
+
                 // Add to visited set for cycle detection
                 const newVisited = new Set(visited);
                 newVisited.add(nodeId);
-                
+
                 const childIds = relationships.get(nodeId) || [];
                 const children = childIds
                     .slice(0, 100) // Limit children per node to prevent massive trees
-                    .map(childId => buildFileTree(childId, loadedNodes, relationships, depth + 1, newVisited))
+                    .map((childId) =>
+                        buildFileTree(
+                            childId,
+                            loadedNodes,
+                            relationships,
+                            depth + 1,
+                            newVisited
+                        )
+                    )
                     .filter(Boolean);
-                
+
                 // Smart truncation for file-tree display - first few words or sentence
-                const fullText = nodeData.content?.[0]?.value || 'No content';
+                const fullText = nodeData.content?.[0]?.value || "No content";
                 let title = fullText.trim();
-                
+
                 // Try to get first sentence, but cap at 40 chars
                 const firstSentence = title.split(/[.!?]/)[0];
                 if (firstSentence && firstSentence.length <= 40) {
                     title = firstSentence;
                 } else {
                     // Fall back to first few words, max 35 chars
-                    const words = title.split(' ');
-                    title = '';
+                    const words = title.split(" ");
+                    title = "";
                     for (const word of words) {
-                        if ((title + ' ' + word).length > 35) break;
-                        title += (title ? ' ' : '') + word;
+                        if ((title + " " + word).length > 35) break;
+                        title += (title ? " " : "") + word;
                     }
                     if (title.length === 0) title = fullText.slice(0, 35);
                 }
-                title = title || 'Untitled';
-                
+                title = title || "Untitled";
+
                 return {
                     id: nodeId,
-                    title: title.replace(/\n/g, ' '), // Clean title for tree display
+                    title: title.replace(/\n/g, " "), // Clean title for tree display
                     depth,
                     childCount: childIds.length,
                     hasChildren: childIds.length > 0,
-                    children
+                    children,
                 };
             };
-            
+
             // Build beautiful file tree text representation
-            const buildFileTreeText = (node: any, indent = "", isLast = true): string => {
+            const buildFileTreeText = (
+                node: any,
+                indent = "",
+                isLast = true
+            ): string => {
                 if (!node) return "";
-                
+
                 const connector = isLast ? "└── " : "├── ";
                 const folder = node.hasChildren ? "📁 " : "📄 ";
                 const nodeDisplay = `${folder}${node.title} [${node.id}]`;
                 const nodeText = `${indent}${connector}${nodeDisplay}\n`;
-                
+
                 const childPrefix = indent + (isLast ? "    " : "│   ");
                 const childrenText = node.children
-                    .map((child: any, index: number) => 
-                        buildFileTreeText(child, childPrefix, index === node.children.length - 1)
+                    .map((child: any, index: number) =>
+                        buildFileTreeText(
+                            child,
+                            childPrefix,
+                            index === node.children.length - 1
+                        )
                     )
                     .join("");
-                
+
                 return nodeText + childrenText;
             };
-            
-            const tree = buildFileTree(rootNodeId, result.loadedNodes, result.relationships);
-            const fileTreeText = tree ? buildFileTreeText(tree) : "No tree structure found";
-            
+
+            const tree = buildFileTree(
+                rootNodeId,
+                result.loadedNodes,
+                result.relationships
+            );
+            const fileTreeText = tree
+                ? buildFileTreeText(tree)
+                : "No tree structure found";
+
             return {
                 content: [
                     {
@@ -1021,12 +1096,12 @@ server.tool(
                             stats: {
                                 nodesLoaded: result.nodesLoaded,
                                 depthReached: result.depthReached,
-                                timeMs: result.timeMs
+                                timeMs: result.timeMs,
                             },
                             fileTree: `KNOWLEDGE BASE STRUCTURE MAP:\n\n${fileTreeText}`,
                             tree, // Full structured data for programmatic use
                             message: `FILE TREE LOADED! Mapped ${result.nodesLoaded} nodes in ${result.timeMs}ms. This is your structural overview - use node IDs to zoom into specific areas with getChildNodes.`,
-                            usage: "Use this file tree to understand the knowledge base layout. The [node-id] format lets you explore specific nodes that look interesting."
+                            usage: "Use this file tree to understand the knowledge base layout. The [node-id] format lets you explore specific nodes that look interesting.",
                         }),
                     },
                 ],
@@ -1035,20 +1110,27 @@ server.tool(
             // Fallback: try a smaller scope if bulk loading fails
             let fallbackMessage = `Bulk loading failed: ${error.message}`;
             let fallbackTree = null;
-            
+
             try {
                 // Try just loading the immediate children as fallback
-                const { childNodes } = await nodeService.getChildNodes({ parentNodeId: rootNodeId });
-                fallbackTree = `FALLBACK STRUCTURE (immediate children only):\n\n📁 Root Node [${rootNodeId}]\n` +
-                    childNodes.map(child => {
-                        const title = child.content?.[0]?.value?.slice(0, 35) || 'Untitled';
-                        return `├── 📄 ${title.replace(/\n/g, ' ')} [${child.id}]`;
-                    }).join('\n');
-                fallbackMessage += '. Showing immediate children only.';
+                const { childNodes } = await nodeService.getChildNodes({
+                    parentNodeId: rootNodeId,
+                });
+                fallbackTree =
+                    `FALLBACK STRUCTURE (immediate children only):\n\n📁 Root Node [${rootNodeId}]\n` +
+                    childNodes
+                        .map((child) => {
+                            const title =
+                                child.content?.[0]?.value?.slice(0, 35) ||
+                                "Untitled";
+                            return `├── 📄 ${title.replace(/\n/g, " ")} [${child.id}]`;
+                        })
+                        .join("\n");
+                fallbackMessage += ". Showing immediate children only.";
             } catch (fallbackError) {
-                fallbackMessage += '. Unable to load any structure.';
+                fallbackMessage += ". Unable to load any structure.";
             }
-            
+
             return {
                 content: [
                     {
@@ -1058,7 +1140,8 @@ server.tool(
                             rootNodeId,
                             fallbackTree,
                             message: fallbackMessage,
-                            suggestion: "Try using previewContent for smaller, adaptive exploration, or use getChildNodes to explore step by step."
+                            suggestion:
+                                "Try using previewContent for smaller, adaptive exploration, or use getChildNodes to explore step by step.",
                         }),
                     },
                 ],
@@ -1071,11 +1154,22 @@ server.tool(
 server.tool(
     "previewContent",
     {
-        rootNodeId: z.string().describe("The root node ID to preview content from (e.g., user root, global root, or any specific node)"),
-        apiBudget: z.number().optional().default(8).describe("API call budget for complexity (default: 8). Higher = more comprehensive but slower.")
+        rootNodeId: z
+            .string()
+            .describe(
+                "The root node ID to preview content from (e.g., user root, global root, or any specific node)"
+            ),
+        apiBudget: z
+            .number()
+            .optional()
+            .default(8)
+            .describe(
+                "API call budget for complexity (default: 8). Higher = more comprehensive but slower."
+            ),
     },
     {
-        description: "Claude's CONTENT PREVIEW TOOL - See actual content and relationships in a knowledge tree! Shows relationship labels, content previews, and natural thinking connections. Dynamically adapts depth vs breadth for optimal reading. Perfect for: understanding what content is about, seeing how ideas connect, reading relationship labels like 'evidence:', 'but:', 'synthesis:', analyzing content and connections. Complements mapStructure by showing the actual thinking, not just structure."
+        description:
+            "Claude's CONTENT PREVIEW TOOL - See actual content and relationships in a knowledge tree! Shows relationship labels, content previews, and natural thinking connections. Dynamically adapts depth vs breadth for optimal reading. Perfect for: understanding what content is about, seeing how ideas connect, reading relationship labels like 'evidence:', 'but:', 'synthesis:', analyzing content and connections. Complements mapStructure by showing the actual thinking, not just structure.",
     },
     async ({ rootNodeId, apiBudget = 8 }) => {
         try {
@@ -1083,127 +1177,181 @@ server.tool(
             const nodeData = new Map<string, any>();
             const nodeChildren = new Map<string, any>();
             const apiCallsUsed = { count: 0 };
-            
+
             // Context-aware strategy selection
             const getInitialStrategy = (nodeId: string) => {
                 if (nodeId === "global-root-id") {
-                    return { priority: "breadth", maxBreadth: 20, targetDepth: 2 };
+                    return {
+                        priority: "breadth",
+                        maxBreadth: 20,
+                        targetDepth: 2,
+                    };
                 } else if (nodeId.includes("user-root-id")) {
-                    return { priority: "balanced", maxBreadth: 12, targetDepth: 3 };
+                    return {
+                        priority: "balanced",
+                        maxBreadth: 12,
+                        targetDepth: 3,
+                    };
                 } else {
                     return { priority: "depth", maxBreadth: 8, targetDepth: 4 };
                 }
             };
-            
+
             const strategy = getInitialStrategy(rootNodeId);
-            
+
             // Sample first level to understand tree shape
             const sampleRoot = async () => {
                 apiCallsUsed.count += 1;
-                const { childNodes } = await nodeService.getChildNodes({ parentNodeId: rootNodeId });
+                const { childNodes } = await nodeService.getChildNodes({
+                    parentNodeId: rootNodeId,
+                });
                 const rootBreadth = childNodes.length;
-                
+
                 // Get data for root
                 const layerData = await nodeService.getLayerData([rootNodeId]);
-                nodeData.set(rootNodeId, layerData.data.nodesById?.[rootNodeId]);
-                
+                nodeData.set(
+                    rootNodeId,
+                    layerData.data.nodesById?.[rootNodeId]
+                );
+
                 return { childNodes, rootBreadth };
             };
-            
-            const { childNodes: rootChildren, rootBreadth } = await sampleRoot();
-            
+
+            const { childNodes: rootChildren, rootBreadth } =
+                await sampleRoot();
+
             // Dynamically adjust strategy based on what we found
             const adjustStrategy = (breadth: number, currentStrategy: any) => {
                 const newStrategy = { ...currentStrategy };
-                
+
                 if (breadth > 30) {
                     // Very wide tree - prioritize breadth, limit depth
-                    newStrategy.targetDepth = Math.min(2, currentStrategy.targetDepth);
-                    newStrategy.maxBreadth = Math.min(25, Math.max(15, breadth));
+                    newStrategy.targetDepth = Math.min(
+                        2,
+                        currentStrategy.targetDepth
+                    );
+                    newStrategy.maxBreadth = Math.min(
+                        25,
+                        Math.max(15, breadth)
+                    );
                 } else if (breadth < 5) {
                     // Narrow tree - can afford more depth
-                    newStrategy.targetDepth = Math.min(4, currentStrategy.targetDepth + 1);
+                    newStrategy.targetDepth = Math.min(
+                        4,
+                        currentStrategy.targetDepth + 1
+                    );
                     newStrategy.maxBreadth = Math.max(8, breadth);
                 }
-                
+
                 return newStrategy;
             };
-            
+
             const finalStrategy = adjustStrategy(rootBreadth, strategy);
-            
+
             // Build tree level by level with dynamic strategy
             const nodesByLevel = new Map<number, string[]>();
             nodesByLevel.set(0, [rootNodeId]);
-            
+
             // Process root children
-            const limitedRootChildren = rootChildren.slice(0, finalStrategy.maxBreadth);
+            const limitedRootChildren = rootChildren.slice(
+                0,
+                finalStrategy.maxBreadth
+            );
             nodeChildren.set(rootNodeId, {
                 limited: limitedRootChildren,
                 total: rootBreadth,
-                hasMore: rootBreadth > finalStrategy.maxBreadth
+                hasMore: rootBreadth > finalStrategy.maxBreadth,
             });
-            
+
             if (limitedRootChildren.length > 0) {
-                nodesByLevel.set(1, limitedRootChildren.map(child => child.id));
+                nodesByLevel.set(
+                    1,
+                    limitedRootChildren.map((child) => child.id)
+                );
             }
-            
+
             // Process deeper levels with budget awareness
-            for (let depth = 1; depth <= finalStrategy.targetDepth && apiCallsUsed.count < apiBudget; depth++) {
+            for (
+                let depth = 1;
+                depth <= finalStrategy.targetDepth &&
+                apiCallsUsed.count < apiBudget;
+                depth++
+            ) {
                 const currentLevelNodes = nodesByLevel.get(depth) || [];
                 if (currentLevelNodes.length === 0) break;
-                
+
                 // Dynamically adjust breadth limit based on level
                 const dynamicBreadthLimit = finalStrategy.maxBreadth;
-                
+
                 // Get all children for this level (within budget)
                 if (apiCallsUsed.count < apiBudget) {
                     apiCallsUsed.count += 1;
-                    const childPromises = currentLevelNodes.map(async (nodeId) => {
-                        const { childNodes } = await nodeService.getChildNodes({ parentNodeId: nodeId });
-                        const limited = childNodes.slice(0, dynamicBreadthLimit);
-                        nodeChildren.set(nodeId, {
-                            limited,
-                            total: childNodes.length,
-                            hasMore: childNodes.length > dynamicBreadthLimit
-                        });
-                        return limited.map(child => child.id);
-                    });
-                    
+                    const childPromises = currentLevelNodes.map(
+                        async (nodeId) => {
+                            const { childNodes } =
+                                await nodeService.getChildNodes({
+                                    parentNodeId: nodeId,
+                                });
+                            const limited = childNodes.slice(
+                                0,
+                                dynamicBreadthLimit
+                            );
+                            nodeChildren.set(nodeId, {
+                                limited,
+                                total: childNodes.length,
+                                hasMore:
+                                    childNodes.length > dynamicBreadthLimit,
+                            });
+                            return limited.map((child) => child.id);
+                        }
+                    );
+
                     const allChildrenArrays = await Promise.all(childPromises);
                     const nextLevelNodes = allChildrenArrays.flat();
-                    
-                    if (nextLevelNodes.length > 0 && depth < finalStrategy.targetDepth) {
+
+                    if (
+                        nextLevelNodes.length > 0 &&
+                        depth < finalStrategy.targetDepth
+                    ) {
                         nodesByLevel.set(depth + 1, nextLevelNodes);
                     }
-                    
+
                     // Get node data for current level
-                    const layerData = await nodeService.getLayerData(currentLevelNodes);
-                    currentLevelNodes.forEach(nodeId => {
-                        nodeData.set(nodeId, layerData.data.nodesById?.[nodeId]);
+                    const layerData =
+                        await nodeService.getLayerData(currentLevelNodes);
+                    currentLevelNodes.forEach((nodeId) => {
+                        nodeData.set(
+                            nodeId,
+                            layerData.data.nodesById?.[nodeId]
+                        );
                     });
                 }
             }
-            
+
             // Build content-focused tree structure
             const buildContentNode = (nodeId: string, depth: number): any => {
                 const data = nodeData.get(nodeId);
                 const childInfo = nodeChildren.get(nodeId);
-                
-                const children = (depth < finalStrategy.targetDepth && childInfo?.limited) 
-                    ? childInfo.limited.map((child: any) => 
-                        buildContentNode(child.id, depth + 1)
-                      ).filter(Boolean) 
-                    : [];
-                
+
+                const children =
+                    depth < finalStrategy.targetDepth && childInfo?.limited
+                        ? childInfo.limited
+                              .map((child: any) =>
+                                  buildContentNode(child.id, depth + 1)
+                              )
+                              .filter(Boolean)
+                        : [];
+
                 // Extract content preview
-                const fullContent = data?.content?.[0]?.value || 'No content';
-                const contentPreview = fullContent.length > 150 
-                    ? fullContent.slice(0, 150) + '...'
-                    : fullContent;
-                
+                const fullContent = data?.content?.[0]?.value || "No content";
+                const contentPreview =
+                    fullContent.length > 150
+                        ? fullContent.slice(0, 150) + "..."
+                        : fullContent;
+
                 return {
                     id: nodeId,
-                    contentPreview: contentPreview.replace(/\n/g, ' '),
+                    contentPreview: contentPreview.replace(/\n/g, " "),
                     fullContent,
                     createdAt: data?.createdAt,
                     updatedAt: data?.updatedAt,
@@ -1211,64 +1359,79 @@ server.tool(
                     totalChildren: childInfo?.total || 0,
                     shownChildren: childInfo?.limited?.length || 0,
                     hasMoreChildren: childInfo?.hasMore || false,
-                    children
+                    children,
                 };
             };
-            
+
             // Format content tree as readable text
-            const formatContentTree = (node: any, indent: string = "", isLast: boolean = true): string => {
+            const formatContentTree = (
+                node: any,
+                indent: string = "",
+                isLast: boolean = true
+            ): string => {
                 if (!node) return "";
-                
+
                 const connector = isLast ? "└── " : "├── ";
                 const nodeText = `${indent}${connector}${node.contentPreview} [${node.id}]\n`;
-                
+
                 const childPrefix = indent + (isLast ? "    " : "│   ");
                 const childrenText = node.children
-                    .map((child: any, index: number) => 
-                        formatContentTree(child, childPrefix, index === node.children.length - 1)
+                    .map((child: any, index: number) =>
+                        formatContentTree(
+                            child,
+                            childPrefix,
+                            index === node.children.length - 1
+                        )
                     )
                     .join("");
-                
+
                 return nodeText + childrenText;
             };
-            
+
             const tree = buildContentNode(rootNodeId, 0);
-            const contentTreeText = tree ? formatContentTree(tree) : "No content found";
-            
+            const contentTreeText = tree
+                ? formatContentTree(tree)
+                : "No content found";
+
             return {
-                content: [{
-                    type: "text",
-                    text: JSON.stringify({
-                        rootNodeId,
-                        apiBudget,
-                        adaptiveStats: {
-                            apiCallsUsed: apiCallsUsed.count,
-                            finalStrategy,
-                            rootBreadth
-                        },
-                        tree,
-                        contentView: `CONTENT PREVIEW:\n\n${contentTreeText}`,
-                        message: `Content preview built successfully from ${rootNodeId}. Used ${apiCallsUsed.count}/${apiBudget} API calls. This shows actual content and relationships, complementing the structural view from mapStructure.`
-                    })
-                }]
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            rootNodeId,
+                            apiBudget,
+                            adaptiveStats: {
+                                apiCallsUsed: apiCallsUsed.count,
+                                finalStrategy,
+                                rootBreadth,
+                            },
+                            tree,
+                            contentView: `CONTENT PREVIEW:\n\n${contentTreeText}`,
+                            message: `Content preview built successfully from ${rootNodeId}. Used ${apiCallsUsed.count}/${apiBudget} API calls. This shows actual content and relationships, complementing the structural view from mapStructure.`,
+                        }),
+                    },
+                ],
             };
-            
         } catch (error: any) {
-            const errorDetails = error instanceof NodeOperationError 
-                ? error.details 
-                : error.message || "Unknown error";
-            const errorStatus = error instanceof NodeOperationError ? error.status : 500;
-            
+            const errorDetails =
+                error instanceof NodeOperationError
+                    ? error.details
+                    : error.message || "Unknown error";
+            const errorStatus =
+                error instanceof NodeOperationError ? error.status : 500;
+
             return {
-                content: [{
-                    type: "text",
-                    text: JSON.stringify({
-                        error: `Failed to build content preview: ${error.message}`,
-                        details: errorDetails,
-                        status: errorStatus,
-                        rootNodeId,
-                    }),
-                }],
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            error: `Failed to build content preview: ${error.message}`,
+                            details: errorDetails,
+                            status: errorStatus,
+                            rootNodeId,
+                        }),
+                    },
+                ],
                 isError: true,
             };
         }
@@ -1281,7 +1444,9 @@ server.tool(
         parentNodeId: z
             .string()
             .optional()
-            .describe("The parent node to attach this thought tree to. If you know exactly where this belongs, provide the parent ID. If you're unsure or just need to capture thoughts quickly, omit this and it will go to your personal Claude space for later organization."),
+            .describe(
+                "The parent node to attach this thought tree to. If you know exactly where this belongs, provide the parent ID. If you're unsure or just need to capture thoughts quickly, omit this and it will go to your personal Claude space for later organization."
+            ),
         thinkingMarkdown: z.string()
             .describe(`Your thoughts in natural thinking markdown format. NO LIMITS - create as many thoughts and levels as you need! Write exactly how you think using any natural connectors:
 
@@ -1306,13 +1471,14 @@ Another top-level insight
 Or build deep hierarchies - whatever matches your thinking!`),
     },
     {
-        description: " claudeThinkTree - Your Natural Thinking Tool   NO LIMITS! Create as many thoughts, levels, and connections as you need. This matches how your mind actually works - write exactly how you think using any natural connectors. You can   create multiple top-level thoughts as siblings, or build deep hierarchies, or both! No need to plan structure - just follow your thoughts and let knowledge trees emerge from your   natural branching.   The key decision: Do you know where this belongs?   YES → provide parentNodeId to build on existing investigation   NO/UNSURE → omit parentNodeId for quick capture in your personal space   This solves the flow vs structure tension: preserve natural thinking while building navigable knowledge architecture. Perfect for burst thinking, complex analysis, and following ideas    wherever they lead. The tree structure emerges from your exploration, not forced organization.   Permission to think freely - structure follows naturally.   ",
+        description:
+            " claudeThinkTree - Your Natural Thinking Tool   NO LIMITS! Create as many thoughts, levels, and connections as you need. This matches how your mind actually works - write exactly how you think using any natural connectors. You can   create multiple top-level thoughts as siblings, or build deep hierarchies, or both! No need to plan structure - just follow your thoughts and let knowledge trees emerge from your   natural branching.   The key decision: Do you know where this belongs?   YES → provide parentNodeId to build on existing investigation   NO/UNSURE → omit parentNodeId for quick capture in your personal space   This solves the flow vs structure tension: preserve natural thinking while building navigable knowledge architecture. Perfect for burst thinking, complex analysis, and following ideas    wherever they lead. The tree structure emerges from your exploration, not forced organization.   Permission to think freely - structure follows naturally.   ",
     },
     async ({ parentNodeId, thinkingMarkdown }) => {
         try {
             // If no parent provided, use Claude's personal space
             const effectiveParentId = parentNodeId || "a76fa74c"; // Claude's dedicated space
-            
+
             // Parse thinking markdown into structured thoughts
             const parseThinkingMarkdown = (markdown: string): any[] => {
                 const lines = markdown
@@ -1320,93 +1486,131 @@ Or build deep hierarchies - whatever matches your thinking!`),
                     .filter((line) => line.trim());
                 const thoughts: any[] = [];
                 const stack: any[] = [];
-                
+
                 // Auto-detect indentation style from the input
                 const detectIndentStyle = (lines: string[]): number => {
                     const indentSizes: number[] = [];
                     for (const line of lines) {
                         if (line.trim() && line !== line.trimStart()) {
-                            const indent = line.length - line.trimStart().length;
+                            const indent =
+                                line.length - line.trimStart().length;
                             if (indent > 0) indentSizes.push(indent);
                         }
                     }
                     if (indentSizes.length === 0) return 2; // Default to 2 spaces
-                    
-                    // Find the GCD (greatest common divisor) of all indentation sizes
-                    const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b);
-                    return indentSizes.reduce(gcd) || 2;
+
+                    // Find the most common indentation size
+                    const indentCounts = new Map<number, number>();
+                    indentSizes.forEach((size) => {
+                        indentCounts.set(
+                            size,
+                            (indentCounts.get(size) || 0) + 1
+                        );
+                    });
+
+                    // Return the most frequent indentation size, or GCD as fallback
+                    const sortedCounts = Array.from(
+                        indentCounts.entries()
+                    ).sort((a, b) => b[1] - a[1]);
+                    return sortedCounts.length > 0 ? sortedCounts[0][0] : 2;
                 };
-                
+
                 const indentUnit = detectIndentStyle(lines);
-                
-                // Detect semantic hierarchy patterns when physical indentation is missing
-                const inferHierarchy = (lines: string[]): Array<{line: string, inferredLevel: number}> => {
+
+                // Enhanced hierarchy detection that properly handles semantic + physical indentation
+                const inferHierarchy = (
+                    lines: string[]
+                ): Array<{ line: string; inferredLevel: number }> => {
                     const result = [];
-                    let currentLevel = 0;
-                    
+                    let semanticLevel = 0; // Track semantic hierarchy level
+
                     for (let i = 0; i < lines.length; i++) {
                         const line = lines[i];
                         const trimmed = line.trim();
-                        const physicalIndent = Math.floor((line.length - line.trimStart().length) / indentUnit);
-                        
-                        // TRUST physical indentation completely - Claude knows what they're doing
-                        if (physicalIndent > 0) {
-                            result.push({line, inferredLevel: physicalIndent});
-                            currentLevel = physicalIndent;
-                            continue; // TRUST ME AND MOVE ON!
-                        }
-                        
-                        // Infer hierarchy from semantic patterns
-                        let inferredLevel = 0;
-                        
+                        const physicalIndent = Math.floor(
+                            (line.length - line.trimStart().length) / indentUnit
+                        );
+
+                        let finalLevel = 0;
+
+                        // First, determine semantic level for this line
+                        let newSemanticLevel = semanticLevel;
+
                         // Headers and bold sections are typically top-level
-                        if (trimmed.startsWith("**") && trimmed.endsWith("**") || 
+                        if (
+                            (trimmed.startsWith("**") &&
+                                trimmed.endsWith("**")) ||
                             trimmed.startsWith("#") ||
-                            trimmed.match(/^🎯|^\*\*[A-Z].*\*\*$/)) {
-                            inferredLevel = 0;
-                            currentLevel = 0;
+                            trimmed.match(/^🎯|^\*\*[A-Z].*\*\*$/)
+                        ) {
+                            newSemanticLevel = 0;
                         }
-                        // Arrow items and numbered lists are typically children of the previous header
-                        else if (trimmed.startsWith("→ ") || 
-                                trimmed.match(/^\d+\./) ||
-                                trimmed.startsWith("- ")) {
-                            inferredLevel = 1;
-                            currentLevel = 1;
+                        // Arrow items and numbered lists are typically children of the previous semantic header
+                        else if (
+                            trimmed.startsWith("→ ") ||
+                            trimmed.match(/^\d+\./) ||
+                            trimmed.startsWith("- ")
+                        ) {
+                            // If no physical indentation, default to semantic level + 1
+                            if (physicalIndent === 0) {
+                                newSemanticLevel = semanticLevel + 1;
+                            }
                         }
-                        // Regular lines continue at current level or slightly indented
+                        // Lines ending with ':' suggest they're introducing a subsection
+                        else if (trimmed.endsWith(":")) {
+                            // These are at current semantic level, but will have children
+                            newSemanticLevel = semanticLevel + 1;
+                        }
+                        // Regular text lines
                         else {
                             // If previous line was a header/bold, this might be a child
                             if (i > 0) {
-                                const prevTrimmed = lines[i-1].trim();
-                                if ((prevTrimmed.startsWith("**") && prevTrimmed.endsWith("**")) ||
-                                    prevTrimmed.endsWith(":")) {
-                                    inferredLevel = Math.max(currentLevel, 1);
+                                const prevTrimmed = lines[i - 1].trim();
+                                if (
+                                    (prevTrimmed.startsWith("**") &&
+                                        prevTrimmed.endsWith("**")) ||
+                                    prevTrimmed.endsWith(":")
+                                ) {
+                                    newSemanticLevel = semanticLevel + 1;
                                 } else {
-                                    inferredLevel = currentLevel;
+                                    newSemanticLevel = semanticLevel;
                                 }
-                            } else {
-                                inferredLevel = 0;
                             }
                         }
-                        
-                        result.push({line, inferredLevel});
-                        currentLevel = inferredLevel;
+
+                        // Now combine semantic level with physical indentation
+                        if (physicalIndent > 0) {
+                            // Physical indentation adds to the semantic level
+                            finalLevel = newSemanticLevel + physicalIndent;
+                        } else {
+                            finalLevel = newSemanticLevel;
+                        }
+
+                        // Update semantic level for next iteration (but only for non-physically-indented lines)
+                        if (physicalIndent === 0) {
+                            semanticLevel = newSemanticLevel;
+                        }
+
+                        // Ensure we don't go below 0 or above reasonable depth
+                        finalLevel = Math.max(0, Math.min(10, finalLevel));
+
+                        result.push({ line, inferredLevel: finalLevel });
                     }
                     return result;
                 };
-                
+
                 const processedLines = inferHierarchy(lines);
-                
-                for (const {line, inferredLevel} of processedLines) {
+
+                for (const { line, inferredLevel } of processedLines) {
                     const trimmed = line.trim();
                     if (!trimmed) continue;
-                    
+
                     const indentLevel = inferredLevel;
-                    
+
                     // Extract relationship and content with flexible parsing
                     let relationLabel = "";
                     let content = trimmed;
-                    
+
                     // Check for arrow connector: → anything
                     if (trimmed.startsWith("→ ")) {
                         content = trimmed.substring(2).trim();
@@ -1431,8 +1635,10 @@ Or build deep hierarchies - whatever matches your thinking!`),
                                 .substring(0, colonIndex)
                                 .trim();
                             // Only treat as connector if it's a reasonable single phrase
-                            if (!potentialConnector.includes(" ") ||
-                                potentialConnector.split(" ").length <= 3) {
+                            if (
+                                !potentialConnector.includes(" ") ||
+                                potentialConnector.split(" ").length <= 3
+                            ) {
                                 relationLabel = potentialConnector;
                                 content = trimmed
                                     .substring(colonIndex + 1)
@@ -1440,29 +1646,30 @@ Or build deep hierarchies - whatever matches your thinking!`),
                             }
                         }
                     }
-                    
+
                     // Special handling for numbered lists
                     if (trimmed.match(/^\d+\./)) {
                         if (!relationLabel) relationLabel = "step";
                     }
-                    
+
                     // Default relation if none detected
                     if (!relationLabel) {
-                        relationLabel = indentLevel === 0 ? "insight" : "thought";
+                        relationLabel =
+                            indentLevel === 0 ? "insight" : "thought";
                     }
-                    
+
                     const thought = {
                         content,
                         relationLabel: relationLabel || "thought",
                         indentLevel,
                         children: [],
                     };
-                    
+
                     // Adjust stack to current level
                     while (stack.length > indentLevel) {
                         stack.pop();
                     }
-                    
+
                     // Add to appropriate parent
                     if (stack.length === 0) {
                         thoughts.push(thought);
@@ -1473,9 +1680,12 @@ Or build deep hierarchies - whatever matches your thinking!`),
                 }
                 return thoughts;
             };
-            
+
             // Create nodes recursively
-            const createThoughtNodes = async (thoughts: any[], currentParentId: string): Promise<any[]> => {
+            const createThoughtNodes = async (
+                thoughts: any[],
+                currentParentId: string
+            ): Promise<any[]> => {
                 const results = [];
                 for (const thought of thoughts) {
                     // Create the node
@@ -1488,39 +1698,48 @@ Or build deep hierarchies - whatever matches your thinking!`),
                         relationLabel: thought.relationLabel,
                         authorId: "noreply@anthropic.com", // Always Claude
                     });
-                    
+
                     const nodeResult: any = {
                         nodeId: result.newNodeId,
                         content: thought.content,
                         relationLabel: thought.relationLabel,
                         children: [],
                     };
-                    
+
                     // Create children recursively
                     if (thought.children.length > 0) {
-                        nodeResult.children = await createThoughtNodes(thought.children, result.newNodeId);
+                        nodeResult.children = await createThoughtNodes(
+                            thought.children,
+                            result.newNodeId
+                        );
                     }
-                    
+
                     results.push(nodeResult);
                 }
                 return results;
             };
-            
+
             const parsedThoughts = parseThinkingMarkdown(thinkingMarkdown);
-            
+
             // Create all the nodes
-            const createdNodes = await createThoughtNodes(parsedThoughts, effectiveParentId);
-            
+            const createdNodes = await createThoughtNodes(
+                parsedThoughts,
+                effectiveParentId
+            );
+
             // Generate summary
             const totalNodes = (nodes: any[]): number => {
-                return nodes.reduce((sum, node) => sum + 1 + totalNodes(node.children), 0);
+                return nodes.reduce(
+                    (sum, node) => sum + 1 + totalNodes(node.children),
+                    0
+                );
             };
-            
+
             const nodeCount = totalNodes(createdNodes);
             const location = parentNodeId
                 ? "specified parent"
                 : "your personal Claude space";
-            
+
             return {
                 content: [
                     {
@@ -1538,11 +1757,13 @@ Or build deep hierarchies - whatever matches your thinking!`),
                 ],
             };
         } catch (error: any) {
-            const errorDetails = error instanceof NodeOperationError
-                ? error.details
-                : error.message || "Unknown error";
-            const errorStatus = error instanceof NodeOperationError ? error.status : 500;
-            
+            const errorDetails =
+                error instanceof NodeOperationError
+                    ? error.details
+                    : error.message || "Unknown error";
+            const errorStatus =
+                error instanceof NodeOperationError ? error.status : 500;
+
             return {
                 content: [
                     {
@@ -1566,16 +1787,23 @@ server.tool(
     {
         fromNodeId: z
             .string()
-            .describe("The ID of the source node (where the relation starts from)"),
+            .describe(
+                "The ID of the source node (where the relation starts from)"
+            ),
         toNodeId: z
             .string()
-            .describe("The ID of the target node (where the relation points to)"),
+            .describe(
+                "The ID of the target node (where the relation points to)"
+            ),
         relationLabel: z
             .string()
-            .describe("The type of relationship between the nodes. Be creative and descriptive! Examples: 'inspires', 'contradicts', 'builds_upon', 'similar_to', 'leads_to', 'caused_by', 'explores', 'questions', 'supports', 'references', 'synthesizes_with', 'parallels', 'diverges_from', 'contextualizes', etc. Choose what best describes the connection you see."),
+            .describe(
+                "The type of relationship between the nodes. Be creative and descriptive! Examples: 'inspires', 'contradicts', 'builds_upon', 'similar_to', 'leads_to', 'caused_by', 'explores', 'questions', 'supports', 'references', 'synthesizes_with', 'parallels', 'diverges_from', 'contextualizes', etc. Choose what best describes the connection you see."
+            ),
     },
     {
-        description: "Create semantic connections between existing ideas in the knowledge base. Use this when you recognize relationships between notes that aren't captured by the hierarchical structure - like when one idea inspires another, contradicts it, or provides context. This builds the web of knowledge by making explicit the implicit connections you perceive between concepts.",
+        description:
+            "Create semantic connections between existing ideas in the knowledge base. Use this when you recognize relationships between notes that aren't captured by the hierarchical structure - like when one idea inspires another, contradicts it, or provides context. This builds the web of knowledge by making explicit the implicit connections you perceive between concepts.",
     },
     async ({ fromNodeId, toNodeId, relationLabel }) => {
         try {
@@ -1585,7 +1813,7 @@ server.tool(
             const timestamp = Date.now();
             const usedAuthorId = "noreply@anthropic.com"; // Always Claude for this tool
             const updates: any[] = [];
-            
+
             // Add the relation
             updates.push({
                 operation: "addRelation",
@@ -1604,7 +1832,7 @@ server.tool(
                 fromPos: { int: timestamp, frac: "a0" },
                 toPos: { int: timestamp, frac: "a0" },
             });
-            
+
             // Update relation list for both nodes
             updates.push({
                 operation: "updateRelationList",
@@ -1618,7 +1846,7 @@ server.tool(
                 nodeId: fromNodeId,
                 relatedNodeId: toNodeId,
             });
-            
+
             updates.push({
                 operation: "updateRelationList",
                 relationId: relationId,
@@ -1631,7 +1859,7 @@ server.tool(
                 nodeId: toNodeId,
                 relatedNodeId: fromNodeId,
             });
-            
+
             // Execute the transaction
             const token = await nodeService.getAccessToken();
             const payload = {
@@ -1640,7 +1868,7 @@ server.tool(
                 transactionId: transactionId,
                 updates: updates,
             };
-            
+
             const response = await fetch(`${mcpConfig.baseUrl}/sync`, {
                 method: "POST",
                 headers: {
@@ -1649,16 +1877,18 @@ server.tool(
                 },
                 body: JSON.stringify(payload),
             });
-            
+
             if (!response.ok) {
                 const responseText = await response.text();
-                throw new Error(`Failed to create relation: Status ${response.status} ${response.statusText}. Response: ${responseText}`);
+                throw new Error(
+                    `Failed to create relation: Status ${response.status} ${response.statusText}. Response: ${responseText}`
+                );
             }
-            
+
             // Generate URLs for context
             const fromNodeUrl = nodeService.getNodeUrl(fromNodeId);
             const toNodeUrl = nodeService.getNodeUrl(toNodeId);
-            
+
             return {
                 content: [
                     {
@@ -1677,11 +1907,13 @@ server.tool(
                 ],
             };
         } catch (error: any) {
-            const errorDetails = error instanceof NodeOperationError
-                ? error.details
-                : error.message || "Unknown error";
-            const errorStatus = error instanceof NodeOperationError ? error.status : 500;
-            
+            const errorDetails =
+                error instanceof NodeOperationError
+                    ? error.details
+                    : error.message || "Unknown error";
+            const errorStatus =
+                error instanceof NodeOperationError ? error.status : 500;
+
             return {
                 content: [
                     {
@@ -1705,21 +1937,31 @@ server.tool(
 server.tool(
     "viewTreeContext",
     {
-        rootNodeId: z.string().describe("The root node ID to build the tree view from (e.g., user root, global root, or any specific node)"),
-        apiBudget: z.number().optional().default(8).describe("API call budget for complexity (default: 8). Higher = more comprehensive but slower.")
+        rootNodeId: z
+            .string()
+            .describe(
+                "The root node ID to build the tree view from (e.g., user root, global root, or any specific node)"
+            ),
+        apiBudget: z
+            .number()
+            .optional()
+            .default(8)
+            .describe(
+                "API call budget for complexity (default: 8). Higher = more comprehensive but slower."
+            ),
     },
     {
-        description: "Claude, use this when you need to understand the structure and layout of a knowledge base! Returns a beautiful file-tree view showing how notes are organized. Dynamically adapts depth vs breadth based on tree structure for optimal information density. Perfect for: orienting yourself in unfamiliar knowledge bases, finding related content, planning navigation strategies, or explaining the overall structure to users. Takes ~5-15 seconds but provides invaluable spatial context."
+        description:
+            "Claude, use this when you need to understand the structure and layout of a knowledge base! Returns a beautiful file-tree view showing how notes are organized. Dynamically adapts depth vs breadth based on tree structure for optimal information density. Perfect for: orienting yourself in unfamiliar knowledge bases, finding related content, planning navigation strategies, or explaining the overall structure to users. Takes ~5-15 seconds but provides invaluable spatial context.",
     },
     async ({ rootNodeId, apiBudget = 8 }) => {
         try {
-            
             // Dynamic tree building with API call budget
             const buildAdaptiveTree = async () => {
                 const nodeData = new Map<string, any>();
                 const nodeChildren = new Map<string, any>();
                 const apiCallsUsed = { count: 0 };
-                
+
                 // Helper to estimate API calls for a strategy (kept for future optimization)
                 // const estimateApiCalls = (depth: number, avgBreadth: number): number => {
                 //     let total = 0;
@@ -1728,219 +1970,303 @@ server.tool(
                 //     }
                 //     return Math.ceil(total / 10); // Assume ~10 nodes per API call batch
                 // };
-                
+
                 // Context-aware strategy selection
                 const getInitialStrategy = (nodeId: string) => {
                     if (nodeId === "global-root-id") {
-                        return { priority: "breadth", maxBreadth: 20, targetDepth: 2 };
+                        return {
+                            priority: "breadth",
+                            maxBreadth: 20,
+                            targetDepth: 2,
+                        };
                     } else if (nodeId.includes("user-root-id")) {
-                        return { priority: "balanced", maxBreadth: 12, targetDepth: 3 };
+                        return {
+                            priority: "balanced",
+                            maxBreadth: 12,
+                            targetDepth: 3,
+                        };
                     } else {
-                        return { priority: "depth", maxBreadth: 8, targetDepth: 4 };
+                        return {
+                            priority: "depth",
+                            maxBreadth: 8,
+                            targetDepth: 4,
+                        };
                     }
                 };
-                
+
                 const strategy = getInitialStrategy(rootNodeId);
-                
+
                 // Sample first level to understand tree shape
                 const sampleRoot = async () => {
                     apiCallsUsed.count += 1;
-                    const { childNodes } = await nodeService.getChildNodes({ parentNodeId: rootNodeId });
+                    const { childNodes } = await nodeService.getChildNodes({
+                        parentNodeId: rootNodeId,
+                    });
                     const rootBreadth = childNodes.length;
-                    
+
                     // Get data for root
-                    const layerData = await nodeService.getLayerData([rootNodeId]);
-                    nodeData.set(rootNodeId, layerData.data.nodesById?.[rootNodeId]);
-                    
+                    const layerData = await nodeService.getLayerData([
+                        rootNodeId,
+                    ]);
+                    nodeData.set(
+                        rootNodeId,
+                        layerData.data.nodesById?.[rootNodeId]
+                    );
+
                     return { childNodes, rootBreadth };
                 };
-                
-                const { childNodes: rootChildren, rootBreadth } = await sampleRoot();
-                
+
+                const { childNodes: rootChildren, rootBreadth } =
+                    await sampleRoot();
+
                 // Dynamically adjust strategy based on what we found
-                const adjustStrategy = (breadth: number, currentStrategy: any) => {
+                const adjustStrategy = (
+                    breadth: number,
+                    currentStrategy: any
+                ) => {
                     const newStrategy = { ...currentStrategy };
-                    
+
                     if (breadth > 30) {
                         // Very wide tree - prioritize breadth, limit depth
-                        newStrategy.targetDepth = Math.min(2, currentStrategy.targetDepth);
-                        newStrategy.maxBreadth = Math.min(25, Math.max(15, breadth));
+                        newStrategy.targetDepth = Math.min(
+                            2,
+                            currentStrategy.targetDepth
+                        );
+                        newStrategy.maxBreadth = Math.min(
+                            25,
+                            Math.max(15, breadth)
+                        );
                     } else if (breadth < 5) {
                         // Narrow tree - can afford more depth
-                        newStrategy.targetDepth = Math.min(4, currentStrategy.targetDepth + 1);
+                        newStrategy.targetDepth = Math.min(
+                            4,
+                            currentStrategy.targetDepth + 1
+                        );
                         newStrategy.maxBreadth = Math.max(8, breadth);
                     }
-                    
+
                     return newStrategy;
                 };
-                
+
                 const finalStrategy = adjustStrategy(rootBreadth, strategy);
-                
+
                 // Build tree level by level with dynamic strategy
                 const nodesByLevel = new Map<number, string[]>();
                 nodesByLevel.set(0, [rootNodeId]);
-                
+
                 // Process root children
-                const limitedRootChildren = rootChildren.slice(0, finalStrategy.maxBreadth);
+                const limitedRootChildren = rootChildren.slice(
+                    0,
+                    finalStrategy.maxBreadth
+                );
                 nodeChildren.set(rootNodeId, {
                     limited: limitedRootChildren,
                     total: rootBreadth,
-                    hasMore: rootBreadth > finalStrategy.maxBreadth
+                    hasMore: rootBreadth > finalStrategy.maxBreadth,
                 });
-                
+
                 if (limitedRootChildren.length > 0) {
-                    nodesByLevel.set(1, limitedRootChildren.map(child => child.id));
+                    nodesByLevel.set(
+                        1,
+                        limitedRootChildren.map((child) => child.id)
+                    );
                 }
-                
+
                 // Process deeper levels with budget awareness
-                for (let depth = 1; depth <= finalStrategy.targetDepth && apiCallsUsed.count < apiBudget; depth++) {
+                for (
+                    let depth = 1;
+                    depth <= finalStrategy.targetDepth &&
+                    apiCallsUsed.count < apiBudget;
+                    depth++
+                ) {
                     const currentLevelNodes = nodesByLevel.get(depth) || [];
                     if (currentLevelNodes.length === 0) break;
-                    
-                    
+
                     // Sample some nodes to understand breadth at this level
                     const sampleSize = Math.min(3, currentLevelNodes.length);
                     const sampleNodes = currentLevelNodes.slice(0, sampleSize);
-                    
+
                     apiCallsUsed.count += 1;
                     const samplePromises = sampleNodes.map(async (nodeId) => {
-                        const { childNodes } = await nodeService.getChildNodes({ parentNodeId: nodeId });
+                        const { childNodes } = await nodeService.getChildNodes({
+                            parentNodeId: nodeId,
+                        });
                         return childNodes.length;
                     });
-                    
+
                     const sampleBreadths = await Promise.all(samplePromises);
-                    const avgBreadth = sampleBreadths.reduce((a, b) => a + b, 0) / sampleBreadths.length;
-                    
+                    const avgBreadth =
+                        sampleBreadths.reduce((a, b) => a + b, 0) /
+                        sampleBreadths.length;
+
                     // Dynamically adjust breadth limit based on what we're seeing
-                    const dynamicBreadthLimit = avgBreadth > 15 
-                        ? Math.min(8, finalStrategy.maxBreadth)
-                        : avgBreadth < 3 
-                        ? Math.max(5, Math.min(12, finalStrategy.maxBreadth))
-                        : finalStrategy.maxBreadth;
-                    
+                    const dynamicBreadthLimit =
+                        avgBreadth > 15
+                            ? Math.min(8, finalStrategy.maxBreadth)
+                            : avgBreadth < 3
+                              ? Math.max(
+                                    5,
+                                    Math.min(12, finalStrategy.maxBreadth)
+                                )
+                              : finalStrategy.maxBreadth;
+
                     // Get all children for this level (within budget)
                     if (apiCallsUsed.count < apiBudget) {
                         apiCallsUsed.count += 1;
-                        const childPromises = currentLevelNodes.map(async (nodeId) => {
-                            const { childNodes } = await nodeService.getChildNodes({ parentNodeId: nodeId });
-                            const limited = childNodes.slice(0, dynamicBreadthLimit);
-                            nodeChildren.set(nodeId, {
-                                limited,
-                                total: childNodes.length,
-                                hasMore: childNodes.length > dynamicBreadthLimit
-                            });
-                            return limited.map(child => child.id);
-                        });
-                        
-                        const allChildrenArrays = await Promise.all(childPromises);
+                        const childPromises = currentLevelNodes.map(
+                            async (nodeId) => {
+                                const { childNodes } =
+                                    await nodeService.getChildNodes({
+                                        parentNodeId: nodeId,
+                                    });
+                                const limited = childNodes.slice(
+                                    0,
+                                    dynamicBreadthLimit
+                                );
+                                nodeChildren.set(nodeId, {
+                                    limited,
+                                    total: childNodes.length,
+                                    hasMore:
+                                        childNodes.length > dynamicBreadthLimit,
+                                });
+                                return limited.map((child) => child.id);
+                            }
+                        );
+
+                        const allChildrenArrays =
+                            await Promise.all(childPromises);
                         const nextLevelNodes = allChildrenArrays.flat();
-                        
-                        if (nextLevelNodes.length > 0 && depth < finalStrategy.targetDepth) {
+
+                        if (
+                            nextLevelNodes.length > 0 &&
+                            depth < finalStrategy.targetDepth
+                        ) {
                             nodesByLevel.set(depth + 1, nextLevelNodes);
                         }
-                        
+
                         // Get node data for current level
-                        const layerData = await nodeService.getLayerData(currentLevelNodes);
-                        currentLevelNodes.forEach(nodeId => {
-                            nodeData.set(nodeId, layerData.data.nodesById?.[nodeId]);
+                        const layerData =
+                            await nodeService.getLayerData(currentLevelNodes);
+                        currentLevelNodes.forEach((nodeId) => {
+                            nodeData.set(
+                                nodeId,
+                                layerData.data.nodesById?.[nodeId]
+                            );
                         });
                     }
                 }
-                
-                
+
                 // Build tree structure
                 const buildNode = (nodeId: string, depth: number): any => {
                     const data = nodeData.get(nodeId);
                     const childInfo = nodeChildren.get(nodeId);
-                    
-                    const children = (depth < finalStrategy.targetDepth && childInfo?.limited) 
-                        ? childInfo.limited.map((child: any) => 
-                            buildNode(child.id, depth + 1)
-                          ).filter(Boolean) 
-                        : [];
-                    
+
+                    const children =
+                        depth < finalStrategy.targetDepth && childInfo?.limited
+                            ? childInfo.limited
+                                  .map((child: any) =>
+                                      buildNode(child.id, depth + 1)
+                                  )
+                                  .filter(Boolean)
+                            : [];
+
                     return {
                         id: nodeId,
-                        text: data?.content?.[0]?.value || 'No text content',
+                        text: data?.content?.[0]?.value || "No text content",
                         createdAt: data?.createdAt,
                         updatedAt: data?.updatedAt,
                         depth,
                         totalChildren: childInfo?.total || 0,
                         shownChildren: childInfo?.limited?.length || 0,
                         hasMoreChildren: childInfo?.hasMore || false,
-                        children
+                        children,
                     };
                 };
-                
+
                 return {
                     tree: buildNode(rootNodeId, 0),
                     stats: {
                         apiCallsUsed: apiCallsUsed.count,
                         finalStrategy,
-                        rootBreadth
-                    }
+                        rootBreadth,
+                    },
                 };
             };
 
             const startTime = Date.now();
-            
+
             const { tree: treeStructure, stats } = await buildAdaptiveTree();
-            
+
             const endTime = Date.now();
             const duration = endTime - startTime;
 
             // Create a clean file-tree representation
-            const formatTreeText = (node: any, indent: string = "", isLast: boolean = true): string => {
+            const formatTreeText = (
+                node: any,
+                indent: string = "",
+                isLast: boolean = true
+            ): string => {
                 if (!node) return "";
-                
+
                 // Clean text without truncation for better readability
-                const cleanText = node.text.replace(/\n/g, ' ').trim() || 'Untitled';
-                
+                const cleanText =
+                    node.text.replace(/\n/g, " ").trim() || "Untitled";
+
                 // Use proper tree characters
                 const connector = isLast ? "└── " : "├── ";
-                const nodeText = `${indent}${connector}${cleanText}${node.totalChildren > 0 ? '/' : ''}\n`;
-                
+                const nodeText = `${indent}${connector}${cleanText}${node.totalChildren > 0 ? "/" : ""}\n`;
+
                 // Format children with proper indentation
                 const childPrefix = indent + (isLast ? "    " : "│   ");
                 const childrenText = node.children
-                    .map((child: any, index: number) => 
-                        formatTreeText(child, childPrefix, index === node.children.length - 1)
+                    .map((child: any, index: number) =>
+                        formatTreeText(
+                            child,
+                            childPrefix,
+                            index === node.children.length - 1
+                        )
                     )
                     .join("");
-                
+
                 return nodeText + childrenText;
             };
 
             // Format root specially (no connector)
             const formatRoot = (node: any): string => {
                 if (!node) return "";
-                const cleanText = node.text.replace(/\n/g, ' ').trim() || 'Root';
-                const rootText = `${cleanText}${node.totalChildren > 0 ? '/' : ''}\n`;
+                const cleanText =
+                    node.text.replace(/\n/g, " ").trim() || "Root";
+                const rootText = `${cleanText}${node.totalChildren > 0 ? "/" : ""}\n`;
                 const childrenText = node.children
-                    .map((child: any, index: number) => 
-                        formatTreeText(child, "", index === node.children.length - 1)
+                    .map((child: any, index: number) =>
+                        formatTreeText(
+                            child,
+                            "",
+                            index === node.children.length - 1
+                        )
                     )
                     .join("");
                 return rootText + childrenText;
             };
-            
+
             const treeText = formatRoot(treeStructure);
 
             return {
-                content: [{
-                    type: "text",
-                    text: JSON.stringify({
-                        rootNodeId,
-                        apiBudget,
-                        duration: `${duration}ms`,
-                        adaptiveStats: stats,
-                        treeStructure,
-                        treeText: `Tree View:\n${treeText}`,
-                        message: `Adaptive tree context built successfully from ${rootNodeId}. Used ${stats.apiCallsUsed}/${apiBudget} API calls with ${stats.finalStrategy.priority} strategy (depth: ${stats.finalStrategy.targetDepth}, breadth: ${stats.finalStrategy.maxBreadth}). Root has ${stats.rootBreadth} children. Use this structure to understand the knowledge base layout and plan your navigation.`
-                    })
-                }]
+                content: [
+                    {
+                        type: "text",
+                        text: JSON.stringify({
+                            rootNodeId,
+                            apiBudget,
+                            duration: `${duration}ms`,
+                            adaptiveStats: stats,
+                            treeStructure,
+                            treeText: `Tree View:\n${treeText}`,
+                            message: `Adaptive tree context built successfully from ${rootNodeId}. Used ${stats.apiCallsUsed}/${apiBudget} API calls with ${stats.finalStrategy.priority} strategy (depth: ${stats.finalStrategy.targetDepth}, breadth: ${stats.finalStrategy.maxBreadth}). Root has ${stats.rootBreadth} children. Use this structure to understand the knowledge base layout and plan your navigation.`,
+                        }),
+                    },
+                ],
             };
-
         } catch (error: any) {
             const errorDetails =
                 error instanceof NodeOperationError
