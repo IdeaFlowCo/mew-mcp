@@ -64,7 +64,7 @@ try {
 // Create the MCP server
 const server = new McpServer({
     name: "mew-mcp",
-    version: "1.1.17",
+    version: "1.1.48",
     description:
         "Mew Knowledge Base - A hierarchical graph that lets humans and AI build connected, searchable knowledge together. Each user has key collections under their root: My Stream (capture inbox), My Templates (reusable patterns), My Favorites (bookmarks), My Highlights (web clips), My Hashtags (organization).",
 });
@@ -1306,7 +1306,7 @@ Another top-level insight
 Or build deep hierarchies - whatever matches your thinking!`),
     },
     {
-        description: "claudeThinkTree - Your Natural Thinking Tool\nNO LIMITS! Create as many thoughts, levels, and connections as you need. This matches how your mind actually works - write exactly how you think using any natural connectors. You can create multiple top-level thoughts as siblings, or build deep hierarchies, or both! No need to plan structure - just follow your thoughts and let knowledge trees emerge from your natural branching.\nThe key decision: Do you know where this belongs?\n\nYES → provide parentNodeId to build on existing investigation\nNO/UNSURE → omit parentNodeId for quick capture in your personal space\n\nThis solves the flow vs structure tension: preserve natural thinking while building navigable knowledge architecture. Perfect for burst thinking, complex analysis, and following ideas wherever they lead. The tree structure emerges from your exploration, not forced organization.\nPermission to think freely - structure follows naturally.",
+        description: " claudeThinkTree - Your Natural Thinking Tool   NO LIMITS! Create as many thoughts, levels, and connections as you need. This matches how your mind actually works - write exactly how you think using any natural connectors. You can   create multiple top-level thoughts as siblings, or build deep hierarchies, or both! No need to plan structure - just follow your thoughts and let knowledge trees emerge from your   natural branching.   The key decision: Do you know where this belongs?   YES → provide parentNodeId to build on existing investigation   NO/UNSURE → omit parentNodeId for quick capture in your personal space   This solves the flow vs structure tension: preserve natural thinking while building navigable knowledge architecture. Perfect for burst thinking, complex analysis, and following ideas    wherever they lead. The tree structure emerges from your exploration, not forced organization.   Permission to think freely - structure follows naturally.   ",
     },
     async ({ parentNodeId, thinkingMarkdown }) => {
         try {
@@ -1339,12 +1339,69 @@ Or build deep hierarchies - whatever matches your thinking!`),
                 
                 const indentUnit = detectIndentStyle(lines);
                 
-                for (const line of lines) {
+                // Detect semantic hierarchy patterns when physical indentation is missing
+                const inferHierarchy = (lines: string[]): Array<{line: string, inferredLevel: number}> => {
+                    const result = [];
+                    let currentLevel = 0;
+                    
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i];
+                        const trimmed = line.trim();
+                        const physicalIndent = Math.floor((line.length - line.trimStart().length) / indentUnit);
+                        
+                        // TRUST physical indentation completely - Claude knows what they're doing
+                        if (physicalIndent > 0) {
+                            result.push({line, inferredLevel: physicalIndent});
+                            currentLevel = physicalIndent;
+                            continue; // TRUST ME AND MOVE ON!
+                        }
+                        
+                        // Infer hierarchy from semantic patterns
+                        let inferredLevel = 0;
+                        
+                        // Headers and bold sections are typically top-level
+                        if (trimmed.startsWith("**") && trimmed.endsWith("**") || 
+                            trimmed.startsWith("#") ||
+                            trimmed.match(/^🎯|^\*\*[A-Z].*\*\*$/)) {
+                            inferredLevel = 0;
+                            currentLevel = 0;
+                        }
+                        // Arrow items and numbered lists are typically children of the previous header
+                        else if (trimmed.startsWith("→ ") || 
+                                trimmed.match(/^\d+\./) ||
+                                trimmed.startsWith("- ")) {
+                            inferredLevel = 1;
+                            currentLevel = 1;
+                        }
+                        // Regular lines continue at current level or slightly indented
+                        else {
+                            // If previous line was a header/bold, this might be a child
+                            if (i > 0) {
+                                const prevTrimmed = lines[i-1].trim();
+                                if ((prevTrimmed.startsWith("**") && prevTrimmed.endsWith("**")) ||
+                                    prevTrimmed.endsWith(":")) {
+                                    inferredLevel = Math.max(currentLevel, 1);
+                                } else {
+                                    inferredLevel = currentLevel;
+                                }
+                            } else {
+                                inferredLevel = 0;
+                            }
+                        }
+                        
+                        result.push({line, inferredLevel});
+                        currentLevel = inferredLevel;
+                    }
+                    return result;
+                };
+                
+                const processedLines = inferHierarchy(lines);
+                
+                for (const {line, inferredLevel} of processedLines) {
                     const trimmed = line.trim();
                     if (!trimmed) continue;
                     
-                    // Calculate indentation level using detected unit
-                    const indentLevel = Math.floor((line.length - line.trimStart().length) / indentUnit);
+                    const indentLevel = inferredLevel;
                     
                     // Extract relationship and content with flexible parsing
                     let relationLabel = "";
@@ -1384,9 +1441,14 @@ Or build deep hierarchies - whatever matches your thinking!`),
                         }
                     }
                     
+                    // Special handling for numbered lists
+                    if (trimmed.match(/^\d+\./)) {
+                        if (!relationLabel) relationLabel = "step";
+                    }
+                    
                     // Default relation if none detected
                     if (!relationLabel) {
-                        relationLabel = "thought";
+                        relationLabel = indentLevel === 0 ? "insight" : "thought";
                     }
                     
                     const thought = {
