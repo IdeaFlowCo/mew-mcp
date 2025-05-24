@@ -62,7 +62,7 @@ try {
 // Create the MCP server
 const server = new McpServer({
     name: "mew-mcp",
-    version: "1.1.50",
+    version: "1.1.51",
     description:
         "Mew Knowledge Base - A hierarchical graph that lets humans and AI build connected, searchable knowledge together. Each user has key collections under their root: My Stream (capture inbox), My Templates (reusable patterns), My Favorites (bookmarks), My Highlights (web clips), My Hashtags (organization).",
 });
@@ -1637,21 +1637,42 @@ Or build deep hierarchies - whatever matches your thinking!`),
                     };
 
                     // Build tree structure using stack
-                    // Adjust stack to current level (pop elements deeper than current level)
+                    // Ensure stack has the right depth - pop elements deeper than current level
                     while (stack.length > finalLevel) {
                         stack.pop();
                     }
 
-                    // Add to appropriate parent
-                    if (stack.length === 0) {
-                        // Top-level thought
+                    // Add to appropriate parent based on level
+                    if (finalLevel === 0) {
+                        // Top-level thought - add to root
                         thoughts.push(thought);
+                    } else if (stack.length === finalLevel) {
+                        // Same level as previous - add to same parent
+                        // Find the parent at level finalLevel - 1
+                        const parent = stack[finalLevel - 1];
+                        if (parent) {
+                            parent.children.push(thought);
+                        } else {
+                            thoughts.push(thought);
+                        }
                     } else {
-                        // Child of the element at stack[stack.length - 1]
-                        stack[stack.length - 1].children.push(thought);
+                        // Different level - add to appropriate parent
+                        if (stack.length > 0) {
+                            stack[stack.length - 1].children.push(thought);
+                        } else {
+                            thoughts.push(thought);
+                        }
                     }
 
-                    // Push current thought onto stack
+                    // Update stack to current level
+                    // Ensure stack has exactly finalLevel elements, then add current thought
+                    while (stack.length < finalLevel) {
+                        // Fill with nulls if needed (shouldn't happen with proper hierarchy)
+                        stack.push(null);
+                    }
+                    while (stack.length > finalLevel) {
+                        stack.pop();
+                    }
                     stack.push(thought);
                 }
 
