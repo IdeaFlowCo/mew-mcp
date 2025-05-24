@@ -776,23 +776,27 @@ server.tool(
             // Enhanced move confirmations with parent info (no extra API calls needed)
             let structureUpdate = null;
             let enhancedResults = results;
-            
+
             if (successCount > 0) {
                 try {
                     // Find unique parent IDs to get their content
-                    const uniqueParentIds = [...new Set(results.map(r => r.newParentId))];
-                    
+                    const uniqueParentIds = [
+                        ...new Set(results.map((r) => r.newParentId)),
+                    ];
+
                     // Get parent content data (single efficient call)
-                    const bulkResult = await nodeService.bulkExpandForClaude(uniqueParentIds);
-                    
+                    const bulkResult =
+                        await nodeService.bulkExpandForClaude(uniqueParentIds);
+
                     // Helper to get truncated parent title
                     const getParentTitle = (parentId: string): string => {
                         const nodeData = bulkResult.loadedNodes.get(parentId);
                         if (!nodeData) return "Unknown Parent";
-                        
-                        const fullText = nodeData.content?.[0]?.value || "No content";
+
+                        const fullText =
+                            nodeData.content?.[0]?.value || "No content";
                         const title = fullText.trim();
-                        
+
                         // Truncate to ~30 chars for clean display
                         if (title.length <= 30) return title;
                         const words = title.split(" ");
@@ -803,20 +807,21 @@ server.tool(
                         }
                         return truncated || title.slice(0, 30);
                     };
-                    
+
                     // Enhance results with parent titles
-                    enhancedResults = results.map(result => ({
+                    enhancedResults = results.map((result) => ({
                         ...result,
                         newParentTitle: getParentTitle(result.newParentId),
-                        moveDescription: `moved to "${getParentTitle(result.newParentId)}..." [${result.newParentId.slice(0, 8)}...]`
+                        moveDescription: `moved to "${getParentTitle(result.newParentId)}..." [${result.newParentId.slice(0, 8)}...]`,
                     }));
-                    
+
                     // Only generate full structure map for multi-node moves (>3 moves)
                     if (successCount > 3) {
                         // Find the most common newParentId for primary focus
                         const parentCounts = new Map<string, number>();
                         results.forEach((result) => {
-                            const count = parentCounts.get(result.newParentId) || 0;
+                            const count =
+                                parentCounts.get(result.newParentId) || 0;
                             parentCounts.set(result.newParentId, count + 1);
                         });
 
@@ -826,102 +831,105 @@ server.tool(
 
                         // Build file-tree structure (reusing logic from mapStructure)
                         const buildFileTree = (
-                        nodeId: string,
-                        loadedNodes: Map<string, any>,
-                        relationships: Map<string, string[]>,
-                        depth = 0,
-                        visited = new Set<string>(),
-                        parentId?: string
-                    ): any => {
-                        if (visited.has(nodeId) || depth > 15) return null;
+                            nodeId: string,
+                            loadedNodes: Map<string, any>,
+                            relationships: Map<string, string[]>,
+                            depth = 0,
+                            visited = new Set<string>(),
+                            parentId?: string
+                        ): any => {
+                            if (visited.has(nodeId) || depth > 15) return null;
 
-                        const nodeData = loadedNodes.get(nodeId);
-                        if (!nodeData) return null;
+                            const nodeData = loadedNodes.get(nodeId);
+                            if (!nodeData) return null;
 
-                        const newVisited = new Set(visited);
-                        newVisited.add(nodeId);
+                            const newVisited = new Set(visited);
+                            newVisited.add(nodeId);
 
-                        const childIds = relationships.get(nodeId) || [];
-                        const children = childIds
-                            .slice(0, 100)
-                            .map((childId) =>
-                                buildFileTree(
-                                    childId,
-                                    loadedNodes,
-                                    relationships,
-                                    depth + 1,
-                                    newVisited,
-                                    nodeId // Pass current node as parent for children
+                            const childIds = relationships.get(nodeId) || [];
+                            const children = childIds
+                                .slice(0, 100)
+                                .map((childId) =>
+                                    buildFileTree(
+                                        childId,
+                                        loadedNodes,
+                                        relationships,
+                                        depth + 1,
+                                        newVisited,
+                                        nodeId // Pass current node as parent for children
+                                    )
                                 )
-                            )
-                            .filter(Boolean);
+                                .filter(Boolean);
 
-                        const fullText =
-                            nodeData.content?.[0]?.value || "No content";
-                        let title = fullText.trim();
+                            const fullText =
+                                nodeData.content?.[0]?.value || "No content";
+                            let title = fullText.trim();
 
-                        const firstSentence = title.split(/[.!?]/)[0];
-                        if (firstSentence && firstSentence.length <= 40) {
-                            title = firstSentence;
-                        } else {
-                            const words = title.split(" ");
-                            title = "";
-                            for (const word of words) {
-                                if ((title + " " + word).length > 35) break;
-                                title += (title ? " " : "") + word;
+                            const firstSentence = title.split(/[.!?]/)[0];
+                            if (firstSentence && firstSentence.length <= 40) {
+                                title = firstSentence;
+                            } else {
+                                const words = title.split(" ");
+                                title = "";
+                                for (const word of words) {
+                                    if ((title + " " + word).length > 35) break;
+                                    title += (title ? " " : "") + word;
+                                }
+                                if (title.length === 0)
+                                    title = fullText.slice(0, 35);
                             }
-                            if (title.length === 0)
-                                title = fullText.slice(0, 35);
-                        }
-                        title = title || "Untitled";
+                            title = title || "Untitled";
 
-                        return {
-                            id: nodeId,
-                            title: title.replace(/\n/g, " "),
-                            depth,
-                            parentId: parentId || null,
-                            childCount: childIds.length,
-                            hasChildren: childIds.length > 0,
-                            children,
+                            return {
+                                id: nodeId,
+                                title: title.replace(/\n/g, " "),
+                                depth,
+                                parentId: parentId || null,
+                                childCount: childIds.length,
+                                hasChildren: childIds.length > 0,
+                                children,
+                            };
                         };
-                    };
 
-                    const buildFileTreeText = (
-                        node: any,
-                        indent = "",
-                        isLast = true
-                    ): string => {
-                        if (!node) return "";
+                        const buildFileTreeText = (
+                            node: any,
+                            indent = "",
+                            isLast = true
+                        ): string => {
+                            if (!node) return "";
 
-                        const connector = isLast ? "└── " : "├── ";
-                        const folder = node.hasChildren ? "📁 " : "📄 ";
-                        const depthIndicator = `L${node.depth}:`;
-                        const parentInfo = node.parentId ? ` (parent: ${node.parentId.slice(0, 8)}...)` : " (ROOT)";
-                        const nodeDisplay = `${depthIndicator} ${folder}${node.title} [${node.id}]${parentInfo}`;
-                        const nodeText = `${indent}${connector}${nodeDisplay}\n`;
+                            const connector = isLast ? "└── " : "├── ";
+                            const folder = node.hasChildren ? "📁 " : "📄 ";
+                            const depthIndicator = `L${node.depth}:`;
+                            const parentInfo = node.parentId
+                                ? ` (parent: ${node.parentId.slice(0, 8)}...)`
+                                : " (ROOT)";
+                            const nodeDisplay = `${depthIndicator} ${folder}${node.title} [${node.id}]${parentInfo}`;
+                            const nodeText = `${indent}${connector}${nodeDisplay}\n`;
 
-                        const childPrefix = indent + (isLast ? "    " : "│   ");
-                        const childrenText = node.children
-                            .map((child: any, index: number) =>
-                                buildFileTreeText(
-                                    child,
-                                    childPrefix,
-                                    index === node.children.length - 1
+                            const childPrefix =
+                                indent + (isLast ? "    " : "│   ");
+                            const childrenText = node.children
+                                .map((child: any, index: number) =>
+                                    buildFileTreeText(
+                                        child,
+                                        childPrefix,
+                                        index === node.children.length - 1
+                                    )
                                 )
-                            )
-                            .join("");
+                                .join("");
 
-                        return nodeText + childrenText;
-                    };
+                            return nodeText + childrenText;
+                        };
 
-                    const tree = buildFileTree(
-                        primaryParent,
-                        bulkResult.loadedNodes,
-                        bulkResult.relationships
-                    );
-                    const fileTreeText = tree
-                        ? buildFileTreeText(tree)
-                        : "No tree structure found";
+                        const tree = buildFileTree(
+                            primaryParent,
+                            bulkResult.loadedNodes,
+                            bulkResult.relationships
+                        );
+                        const fileTreeText = tree
+                            ? buildFileTreeText(tree)
+                            : "No tree structure found";
 
                         structureUpdate = {
                             primaryParent,
@@ -1100,7 +1108,9 @@ server.tool(
                 const connector = isLast ? "└── " : "├── ";
                 const folder = node.hasChildren ? "📁 " : "📄 ";
                 const depthIndicator = `L${node.depth}:`;
-                const parentInfo = node.parentId ? ` (parent: ${node.parentId.slice(0, 8)}...)` : " (ROOT)";
+                const parentInfo = node.parentId
+                    ? ` (parent: ${node.parentId.slice(0, 8)}...)`
+                    : " (ROOT)";
                 const nodeDisplay = `${depthIndicator} ${folder}${node.title} [${node.id}]${parentInfo}`;
                 const nodeText = `${indent}${connector}${nodeDisplay}\n`;
 
@@ -1489,27 +1499,26 @@ server.tool(
                 "The parent node to attach this thought tree to. If you know exactly where this belongs, provide the parent ID. If you're unsure or just need to capture thoughts quickly, omit this and it will go to your personal Claude space for later organization."
             ),
         thinkingMarkdown: z.string()
-            .describe(`Your thoughts in natural thinking markdown format. NO LIMITS - create as many thoughts and levels as you need! Write exactly how you think using any natural connectors:
+            .describe(`Just think naturally! Write however feels right:
 
-→ flows to anything
-→ key insight: breakthrough moments  
-→ honestly: uncertain thoughts
-breakthrough: major realizations
-tentative: unsure explorations
-critical: important points
-but wait: contradictions
-actually: corrections
-hmm: contemplations
+Examples that work beautifully:
+→ flowing thoughts with arrows
+- bullet point insights  
+* different bullet styles
+• or these bullets too
 
-You can create multiple top-level thoughts as siblings:
-First insight about bottlenecks
-Second insight about coordination  
-Third insight about creativity
-  → evidence: This has supporting data
-  → but: There's a caveat here
-Another top-level insight
+What if this leads somewhere?
+insight: breakthrough moments happen
+but: there's always a caveat  
+so: this means something important
+1. numbered steps work too
+2. for sequential thinking
 
-Or build deep hierarchies - whatever matches your thinking!`),
+**Headers work great:**
+→ auto-nested content flows naturally
+→ no need to indent manually
+
+Think freely - the structure emerges from your natural flow. No rules, just thinking! 🧠`),
     },
     {
         description:
@@ -1534,12 +1543,17 @@ Or build deep hierarchies - whatever matches your thinking!`),
                     const line = lines[i];
                     const trimmed = line.trim();
 
-                    // Calculate indentation level (2 spaces = 1 level)
-                    const indentLevel = Math.floor(
-                        (line.length - line.trimStart().length) / 2
-                    );
+                    // Calculate indentation level with forgiveness (2 spaces = 1 level, but be flexible)
+                    let rawIndent = line.length - line.trimStart().length;
+                    let indentLevel = Math.floor(rawIndent / 2);
 
-                    // Parse content and relation label
+                    // Be forgiving: if indentation is close to a level, snap to it
+                    if (rawIndent % 2 === 1 && rawIndent > 0) {
+                        // Odd indent (like 3 spaces) - round to nearest level
+                        indentLevel = Math.round(rawIndent / 2);
+                    }
+
+                    // Parse content and relation label with natural thinking patterns
                     let content = trimmed;
                     let relationLabel = "thought";
 
@@ -1547,30 +1561,187 @@ Or build deep hierarchies - whatever matches your thinking!`),
                     if (trimmed.startsWith("→ ")) {
                         content = trimmed.substring(2).trim();
                         relationLabel = "flows_to";
+
+                        // SMART ARROW NESTING: Find the most recent header to nest under
+                        if (i > 0) {
+                            // Look backwards to find the most recent line with a colon at the same indent level
+                            for (let j = i - 1; j >= 0; j--) {
+                                const checkLine = lines[j];
+                                const checkTrimmed = checkLine.trim();
+                                const checkIndentLevel = Math.floor(
+                                    (checkLine.length -
+                                        checkLine.trimStart().length) /
+                                        2
+                                );
+
+                                // If we find a header at the same level, make this arrow its child
+                                if (
+                                    indentLevel === checkIndentLevel &&
+                                    checkTrimmed.includes(":")
+                                ) {
+                                    indentLevel = checkIndentLevel + 1; // Make arrow a child
+                                    break; // Stop searching once we find the header
+                                }
+
+                                // If we find a non-arrow line at same level that's not a header, stop searching
+                                if (
+                                    indentLevel === checkIndentLevel &&
+                                    !checkTrimmed.startsWith("→ ") &&
+                                    !checkTrimmed.includes(":")
+                                ) {
+                                    break;
+                                }
+                            }
+                        }
                     }
-                    // Handle custom relations: label: content
+                    // Handle natural bullet points: -, *, •
+                    else if (trimmed.match(/^[-*•]\s/)) {
+                        content = trimmed.substring(2).trim();
+                        relationLabel = "detail";
+
+                        // Apply same smart nesting for bullets
+                        if (i > 0) {
+                            for (let j = i - 1; j >= 0; j--) {
+                                const checkLine = lines[j];
+                                const checkTrimmed = checkLine.trim();
+                                const checkIndentLevel = Math.floor(
+                                    (checkLine.length -
+                                        checkLine.trimStart().length) /
+                                        2
+                                );
+
+                                if (
+                                    indentLevel === checkIndentLevel &&
+                                    checkTrimmed.includes(":")
+                                ) {
+                                    indentLevel = checkIndentLevel + 1;
+                                    break;
+                                }
+
+                                if (
+                                    indentLevel === checkIndentLevel &&
+                                    !checkTrimmed.match(/^[-*•→]\s/) &&
+                                    !checkTrimmed.includes(":")
+                                ) {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    // Handle natural thinking connectors with more flexibility
                     else if (
                         trimmed.includes(": ") &&
-                        trimmed.indexOf(": ") < 40
+                        trimmed.indexOf(": ") < 50
                     ) {
                         const colonIndex = trimmed.indexOf(": ");
                         const potentialLabel = trimmed
                             .substring(0, colonIndex)
-                            .trim();
-                        // Accept any reasonable relation label
+                            .trim()
+                            .toLowerCase();
+
+                        // Common thinking patterns - be very permissive
+                        const naturalPatterns = [
+                            "but",
+                            "however",
+                            "wait",
+                            "actually",
+                            "so",
+                            "therefore",
+                            "this means",
+                            "because",
+                            "since",
+                            "then",
+                            "next",
+                            "also",
+                            "furthermore",
+                            "moreover",
+                            "insight",
+                            "key insight",
+                            "realization",
+                            "discovery",
+                            "breakthrough",
+                            "evidence",
+                            "proof",
+                            "example",
+                            "instance",
+                            "case",
+                            "scenario",
+                            "question",
+                            "problem",
+                            "issue",
+                            "challenge",
+                            "opportunity",
+                            "solution",
+                            "answer",
+                            "approach",
+                            "method",
+                            "strategy",
+                            "plan",
+                            "note",
+                            "observation",
+                            "thought",
+                            "idea",
+                            "concept",
+                            "theory",
+                            "hypothesis",
+                            "assumption",
+                            "premise",
+                            "conclusion",
+                            "result",
+                            "implication",
+                            "consequence",
+                            "outcome",
+                            "effect",
+                            "impact",
+                            "synthesis",
+                            "summary",
+                            "analysis",
+                            "evaluation",
+                            "assessment",
+                            "context",
+                            "background",
+                            "history",
+                            "perspective",
+                            "viewpoint",
+                            "concern",
+                            "worry",
+                            "fear",
+                            "hope",
+                            "expectation",
+                            "prediction",
+                            "alternative",
+                            "option",
+                            "possibility",
+                            "scenario",
+                            "case",
+                            "followup",
+                            "follow up",
+                            "next step",
+                            "action item",
+                            "todo",
+                        ];
+
+                        // Check if it matches common patterns or is reasonable length
                         if (
-                            potentialLabel.length > 0 &&
-                            potentialLabel.length < 30 &&
-                            !potentialLabel.includes(" ")
+                            naturalPatterns.includes(potentialLabel) ||
+                            (potentialLabel.length > 0 &&
+                                potentialLabel.length < 25 &&
+                                potentialLabel.split(" ").length <= 4)
                         ) {
-                            relationLabel = potentialLabel;
+                            relationLabel = potentialLabel.replace(/\s+/g, "_");
                             content = trimmed.substring(colonIndex + 2).trim();
-                        } else if (potentialLabel.split(" ").length <= 3) {
-                            // Allow multi-word labels like "key insight", "action plan"
-                            relationLabel = potentialLabel
-                                .toLowerCase()
-                                .replace(/\s+/g, "_");
-                            content = trimmed.substring(colonIndex + 2).trim();
+                        }
+                    }
+                    // Handle questions naturally
+                    else if (trimmed.endsWith("?")) {
+                        relationLabel = "question";
+                    }
+                    // Handle numbered lists
+                    else if (trimmed.match(/^\d+[\.)]\s/)) {
+                        const match = trimmed.match(/^\d+[\.)]\s(.+)/);
+                        if (match) {
+                            content = match[1];
+                            relationLabel = "step";
                         }
                     }
 
