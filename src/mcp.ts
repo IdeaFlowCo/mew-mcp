@@ -1321,12 +1321,30 @@ Or build deep hierarchies - whatever matches your thinking!`),
                 const thoughts: any[] = [];
                 const stack: any[] = [];
                 
+                // Auto-detect indentation style from the input
+                const detectIndentStyle = (lines: string[]): number => {
+                    const indentSizes: number[] = [];
+                    for (const line of lines) {
+                        if (line.trim() && line !== line.trimStart()) {
+                            const indent = line.length - line.trimStart().length;
+                            if (indent > 0) indentSizes.push(indent);
+                        }
+                    }
+                    if (indentSizes.length === 0) return 2; // Default to 2 spaces
+                    
+                    // Find the GCD (greatest common divisor) of all indentation sizes
+                    const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b);
+                    return indentSizes.reduce(gcd) || 2;
+                };
+                
+                const indentUnit = detectIndentStyle(lines);
+                
                 for (const line of lines) {
                     const trimmed = line.trim();
                     if (!trimmed) continue;
                     
-                    // Calculate indentation level
-                    const indentLevel = (line.length - line.trimStart().length) / 2;
+                    // Calculate indentation level using detected unit
+                    const indentLevel = Math.floor((line.length - line.trimStart().length) / indentUnit);
                     
                     // Extract relationship and content with flexible parsing
                     let relationLabel = "";
