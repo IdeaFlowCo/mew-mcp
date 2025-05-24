@@ -766,6 +766,104 @@ server.tool(
             const successCount = results.length;
             const errorCount = errors.length;
             
+            // If we had successful moves, automatically generate a structure map for Claude's clarity
+            let structureUpdate = null;
+            if (successCount > 0) {
+                try {
+                    // Find the most relevant parent to map (use the most common newParentId)
+                    const parentCounts = new Map<string, number>();
+                    results.forEach(result => {
+                        const count = parentCounts.get(result.newParentId) || 0;
+                        parentCounts.set(result.newParentId, count + 1);
+                    });
+                    
+                    // Get the parent with the most moves (primary reorganization target)
+                    const primaryParent = Array.from(parentCounts.entries())
+                        .sort((a, b) => b[1] - a[1])[0][0];
+                    
+                    // Generate structure map of the primary affected area
+                    const bulkResult = await nodeService.bulkExpandForClaude([primaryParent]);
+                    
+                    // Build file-tree structure (reusing logic from mapStructure)
+                    const buildFileTree = (nodeId: string, loadedNodes: Map<string, any>, relationships: Map<string, string[]>, depth = 0, visited = new Set<string>()): any => {
+                        if (visited.has(nodeId) || depth > 15) return null;
+                        
+                        const nodeData = loadedNodes.get(nodeId);
+                        if (!nodeData) return null;
+                        
+                        const newVisited = new Set(visited);
+                        newVisited.add(nodeId);
+                        
+                        const childIds = relationships.get(nodeId) || [];
+                        const children = childIds
+                            .slice(0, 100)
+                            .map(childId => buildFileTree(childId, loadedNodes, relationships, depth + 1, newVisited))
+                            .filter(Boolean);
+                        
+                        const fullText = nodeData.content?.[0]?.value || 'No content';
+                        let title = fullText.trim();
+                        
+                        const firstSentence = title.split(/[.!?]/)[0];
+                        if (firstSentence && firstSentence.length <= 40) {
+                            title = firstSentence;
+                        } else {
+                            const words = title.split(' ');
+                            title = '';
+                            for (const word of words) {
+                                if ((title + ' ' + word).length > 35) break;
+                                title += (title ? ' ' : '') + word;
+                            }
+                            if (title.length === 0) title = fullText.slice(0, 35);
+                        }
+                        title = title || 'Untitled';
+                        
+                        return {
+                            id: nodeId,
+                            title: title.replace(/\n/g, ' '),
+                            depth,
+                            childCount: childIds.length,
+                            hasChildren: childIds.length > 0,
+                            children
+                        };
+                    };
+                    
+                    const buildFileTreeText = (node: any, indent = "", isLast = true): string => {
+                        if (!node) return "";
+                        
+                        const connector = isLast ? "└── " : "├── ";
+                        const folder = node.hasChildren ? "📁 " : "📄 ";
+                        const nodeDisplay = `${folder}${node.title} [${node.id}]`;
+                        const nodeText = `${indent}${connector}${nodeDisplay}\n`;
+                        
+                        const childPrefix = indent + (isLast ? "    " : "│   ");
+                        const childrenText = node.children
+                            .map((child: any, index: number) => 
+                                buildFileTreeText(child, childPrefix, index === node.children.length - 1)
+                            )
+                            .join("");
+                        
+                        return nodeText + childrenText;
+                    };
+                    
+                    const tree = buildFileTree(primaryParent, bulkResult.loadedNodes, bulkResult.relationships);
+                    const fileTreeText = tree ? buildFileTreeText(tree) : "No tree structure found";
+                    
+                    structureUpdate = {
+                        primaryParent,
+                        nodesLoaded: bulkResult.nodesLoaded,
+                        timeMs: bulkResult.timeMs,
+                        fileTree: `UPDATED STRUCTURE MAP:\n\n${fileTreeText}`,
+                        message: `Structure map automatically generated for reorganized area around ${primaryParent}. ${bulkResult.nodesLoaded} nodes loaded to show the new organization.`
+                    };
+                } catch (mapError: any) {
+                    // If structure mapping fails, that's okay - just note it
+                    structureUpdate = {
+                        error: `Could not generate structure map: ${mapError.message}`,
+                        suggestion: "Use mapStructure tool manually to see the reorganized structure."
+                    };
+                }
+            }
+            
             return {
                 content: [
                     {
@@ -777,8 +875,9 @@ server.tool(
                             failedMoves: errorCount,
                             results,
                             errors: errors.length > 0 ? errors : undefined,
+                            structureUpdate,
                             message: errorCount === 0
-                                ? `Successfully moved ${successCount} nodes in bulk reorganization. Your knowledge structure has been updated while preserving all content and relationships.`
+                                ? `Successfully moved ${successCount} nodes in bulk reorganization. Your knowledge structure has been updated while preserving all content and relationships.${structureUpdate ? ' Structure map automatically generated below.' : ''}`
                                 : `Completed bulk move: ${successCount} successful, ${errorCount} failed. Check errors array for details.`,
                         }),
                     },
