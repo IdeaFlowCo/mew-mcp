@@ -62,7 +62,7 @@ try {
 // Create the MCP server
 const server = new McpServer({
     name: "mew-mcp",
-    version: "1.1.55",
+    version: "1.1.56",
     description:
         "Mew Knowledge Base - A hierarchical graph that lets humans and AI build connected, searchable knowledge together. Each user has key collections under their root: My Stream (capture inbox), My Templates (reusable patterns), My Favorites (bookmarks), My Highlights (web clips), My Hashtags (organization).",
 });
@@ -739,7 +739,7 @@ server.tool(
     },
     {
         description:
-            "Bulk reorganization tool - move multiple nodes in one operation! Perfect for restructuring entire sections of your knowledge base, consolidating scattered ideas, or reorganizing after new insights emerge. When you think 'I want to move this whole cluster of related thoughts', this is your tool. Each move preserves all content and relationships while updating the hierarchical structure. Much more efficient than individual moves for cognitive reorganization.",
+            "Bulk reorganization tool - move multiple nodes in one operation! Perfect for restructuring entire sections of your knowledge base, consolidating scattered ideas, or reorganizing after new insights emerge. Each move preserves all content and relationships while updating the hierarchical structure. Results show exactly where each node was moved with truncated parent titles. Full structure maps only generated for large reorganizations (>3 moves) - use mapStructure manually for smaller changes if needed.",
     },
     async ({ moves }) => {
         try {
@@ -773,29 +773,59 @@ server.tool(
             const successCount = results.length;
             const errorCount = errors.length;
 
-            // If we had successful moves, automatically generate a structure map for Claude's clarity
+            // Enhanced move confirmations with parent info (no extra API calls needed)
             let structureUpdate = null;
+            let enhancedResults = results;
+            
             if (successCount > 0) {
                 try {
-                    // Find the most relevant parent to map (use the most common newParentId)
-                    const parentCounts = new Map<string, number>();
-                    results.forEach((result) => {
-                        const count = parentCounts.get(result.newParentId) || 0;
-                        parentCounts.set(result.newParentId, count + 1);
-                    });
+                    // Find unique parent IDs to get their content
+                    const uniqueParentIds = [...new Set(results.map(r => r.newParentId))];
+                    
+                    // Get parent content data (single efficient call)
+                    const bulkResult = await nodeService.bulkExpandForClaude(uniqueParentIds);
+                    
+                    // Helper to get truncated parent title
+                    const getParentTitle = (parentId: string): string => {
+                        const nodeData = bulkResult.loadedNodes.get(parentId);
+                        if (!nodeData) return "Unknown Parent";
+                        
+                        const fullText = nodeData.content?.[0]?.value || "No content";
+                        const title = fullText.trim();
+                        
+                        // Truncate to ~30 chars for clean display
+                        if (title.length <= 30) return title;
+                        const words = title.split(" ");
+                        let truncated = "";
+                        for (const word of words) {
+                            if ((truncated + " " + word).length > 30) break;
+                            truncated += (truncated ? " " : "") + word;
+                        }
+                        return truncated || title.slice(0, 30);
+                    };
+                    
+                    // Enhance results with parent titles
+                    enhancedResults = results.map(result => ({
+                        ...result,
+                        newParentTitle: getParentTitle(result.newParentId),
+                        moveDescription: `moved to "${getParentTitle(result.newParentId)}..." [${result.newParentId.slice(0, 8)}...]`
+                    }));
+                    
+                    // Only generate full structure map for multi-node moves (>3 moves)
+                    if (successCount > 3) {
+                        // Find the most common newParentId for primary focus
+                        const parentCounts = new Map<string, number>();
+                        results.forEach((result) => {
+                            const count = parentCounts.get(result.newParentId) || 0;
+                            parentCounts.set(result.newParentId, count + 1);
+                        });
 
-                    // Get the parent with the most moves (primary reorganization target)
-                    const primaryParent = Array.from(
-                        parentCounts.entries()
-                    ).sort((a, b) => b[1] - a[1])[0][0];
+                        const primaryParent = Array.from(
+                            parentCounts.entries()
+                        ).sort((a, b) => b[1] - a[1])[0][0];
 
-                    // Generate structure map of the primary affected area
-                    const bulkResult = await nodeService.bulkExpandForClaude([
-                        primaryParent,
-                    ]);
-
-                    // Build file-tree structure (reusing logic from mapStructure)
-                    const buildFileTree = (
+                        // Build file-tree structure (reusing logic from mapStructure)
+                        const buildFileTree = (
                         nodeId: string,
                         loadedNodes: Map<string, any>,
                         relationships: Map<string, string[]>,
@@ -893,13 +923,14 @@ server.tool(
                         ? buildFileTreeText(tree)
                         : "No tree structure found";
 
-                    structureUpdate = {
-                        primaryParent,
-                        nodesLoaded: bulkResult.nodesLoaded,
-                        timeMs: bulkResult.timeMs,
-                        fileTree: `UPDATED STRUCTURE MAP:\n\n${fileTreeText}`,
-                        message: `Structure map automatically generated for reorganized area around ${primaryParent}. ${bulkResult.nodesLoaded} nodes loaded to show the new organization.`,
-                    };
+                        structureUpdate = {
+                            primaryParent,
+                            nodesLoaded: bulkResult.nodesLoaded,
+                            timeMs: bulkResult.timeMs,
+                            fileTree: `UPDATED STRUCTURE MAP:\n\n${fileTreeText}`,
+                            message: `Structure map automatically generated for large reorganization of ${successCount} nodes. ${bulkResult.nodesLoaded} nodes loaded to show the new organization.`,
+                        };
+                    }
                 } catch (mapError: any) {
                     // If structure mapping fails, that's okay - just note it
                     structureUpdate = {
@@ -919,12 +950,12 @@ server.tool(
                             totalMoves: moves.length,
                             successfulMoves: successCount,
                             failedMoves: errorCount,
-                            results,
+                            results: enhancedResults,
                             errors: errors.length > 0 ? errors : undefined,
                             structureUpdate,
                             message:
                                 errorCount === 0
-                                    ? `Successfully moved ${successCount} nodes in bulk reorganization. Your knowledge structure has been updated while preserving all content and relationships.${structureUpdate ? " Structure map automatically generated below." : ""}`
+                                    ? `Successfully moved ${successCount} nodes. Each result shows destination parent info.${structureUpdate ? " Full structure map generated for large reorganization." : " Use mapStructure manually to see full tree if needed."}`
                                     : `Completed bulk move: ${successCount} successful, ${errorCount} failed. Check errors array for details.`,
                         }),
                     },
