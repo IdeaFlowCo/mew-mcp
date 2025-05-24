@@ -1326,7 +1326,7 @@ Or build deep hierarchies - whatever matches your thinking!`),
                     if (!trimmed) continue;
                     
                     // Calculate indentation level
-                    const indentLevel = Math.floor((line.length - line.trimStart().length) / 2);
+                    const indentLevel = (line.length - line.trimStart().length) / 2;
                     
                     // Extract relationship and content with flexible parsing
                     let relationLabel = "";
@@ -1452,7 +1452,7 @@ Or build deep hierarchies - whatever matches your thinking!`),
                             nodeCount,
                             location,
                             message: `Successfully created ${nodeCount} interconnected thoughts in ${location}. Your cognitive flow has been preserved as a structured knowledge tree with natural relationships.`,
-                            usage: "Your thoughts are now permanently captured with their relationships. Use other tools to explore and connect to additional nodes if needed.",
+                            usage: "Your thoughts are now permanently captured with their relationships. Use claudeCreateRelation to connect to other nodes if needed.",
                         }),
                     },
                 ],
