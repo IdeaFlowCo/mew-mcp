@@ -62,7 +62,7 @@ try {
 // Create the MCP server
 const server = new McpServer({
     name: "mew-mcp",
-    version: "1.1.53",
+    version: "1.1.54",
     description:
         "Mew Knowledge Base - A hierarchical graph that lets humans and AI build connected, searchable knowledge together. Each user has key collections under their root: My Stream (capture inbox), My Templates (reusable patterns), My Favorites (bookmarks), My Highlights (web clips), My Hashtags (organization).",
 });
@@ -1484,206 +1484,101 @@ Or build deep hierarchies - whatever matches your thinking!`),
                 const lines = markdown
                     .split("\n")
                     .filter((line) => line.trim());
+                if (lines.length === 0) return [];
+
                 const thoughts: any[] = [];
                 const stack: any[] = [];
-
-                // Detect indentation unit (most common indentation size)
-                const detectIndentUnit = (lines: string[]): number => {
-                    const indents = lines
-                        .map((line) => line.length - line.trimStart().length)
-                        .filter((indent) => indent > 0);
-
-                    if (indents.length === 0) return 2;
-
-                    // Find most common indentation
-                    const counts = new Map<number, number>();
-                    indents.forEach((indent) =>
-                        counts.set(indent, (counts.get(indent) || 0) + 1)
-                    );
-
-                    return (
-                        Array.from(counts.entries()).sort(
-                            (a, b) => b[1] - a[1]
-                        )[0][0] || 2
-                    );
-                };
-
-                const indentUnit = detectIndentUnit(lines);
-
-                // Parse each line and determine its hierarchical level
-                let currentSemanticLevel = 0;
 
                 for (let i = 0; i < lines.length; i++) {
                     const line = lines[i];
                     const trimmed = line.trim();
 
-                    // Calculate physical indentation level
-                    const physicalIndent = Math.floor(
-                        (line.length - line.trimStart().length) / indentUnit
+                    // Calculate indentation level (2 spaces = 1 level)
+                    const indentLevel = Math.floor(
+                        (line.length - line.trimStart().length) / 2
                     );
 
-                    // Determine semantic level for this line
-                    let semanticLevel = currentSemanticLevel;
-
-                    // FIRST LINE is always the top-level parent (level 0)
-                    if (i === 0) {
-                        semanticLevel = 0;
-                    }
-                    // Lines starting with ** (after the first line) are major sections (level 1)
-                    else if (trimmed.startsWith("**")) {
-                        semanticLevel = 1;
-                    }
-                    // Phase headers are always level 1 (children of main header)
-                    else if (trimmed.match(/^Phase \d+:/i)) {
-                        semanticLevel = 1;
-                    }
-                    // "First/Second/Third top-level insight:" should be level 1 (direct children of main header)
-                    else if (
-                        trimmed.match(
-                            /^(First|Second|Third|Fourth|Fifth)\s+top-level\s+insight:/i
-                        )
-                    ) {
-                        semanticLevel = 1;
-                    }
-                    // Other lines ending with colon are section headers at current level + 1
-                    else if (
-                        trimmed.endsWith(":") &&
-                        !trimmed.startsWith("→")
-                    ) {
-                        semanticLevel = currentSemanticLevel + 1;
-                    }
-                    // Arrows without physical indentation are children of current section
-                    else if (trimmed.startsWith("→ ") && physicalIndent === 0) {
-                        semanticLevel = currentSemanticLevel + 1;
-                    }
-                    // Lines with semantic connectors (breakthrough:, critical:, etc.)
-                    else if (
-                        trimmed.match(
-                            /^(breakthrough|critical|honestly|but wait|actually|hmm|tentative|key insight):/i
-                        )
-                    ) {
-                        // If physically indented, treat as sibling of other indented items
-                        if (physicalIndent > 0) {
-                            semanticLevel = currentSemanticLevel;
-                        } else {
-                            semanticLevel = currentSemanticLevel + 1;
-                        }
-                    }
-                    // Regular text lines without indentation
-                    else if (physicalIndent === 0) {
-                        // Check if this should be a child of the previous line
-                        if (i > 0) {
-                            const prevTrimmed = lines[i - 1].trim();
-                            if (
-                                i === 1 || // Second line is child of first
-                                prevTrimmed.startsWith("**") || // Child of any ** header
-                                prevTrimmed.endsWith(":")
-                            ) {
-                                // Child of header/section
-                                semanticLevel = currentSemanticLevel + 1;
-                            } else {
-                                // Same level as current
-                                semanticLevel = currentSemanticLevel;
-                            }
-                        }
-                    }
-                    // For physically indented lines, semantic level stays the same
-                    // (the indentation will be added to get final level)
-
-                    // Final hierarchical level = semantic level + physical indentation
-                    const finalLevel = Math.max(
-                        0,
-                        semanticLevel + physicalIndent
-                    );
-
-                    // Update current semantic level for next iteration (only for non-indented lines)
-                    if (physicalIndent === 0) {
-                        currentSemanticLevel = semanticLevel;
-                    }
-
-                    // Parse content and relationship label
-                    let relationLabel = "";
+                    // Parse content and relation label
                     let content = trimmed;
+                    let relationLabel = "thought";
 
                     // Handle arrows: → content
                     if (trimmed.startsWith("→ ")) {
                         content = trimmed.substring(2).trim();
                         relationLabel = "flows_to";
                     }
-                    // Handle semantic connectors: connector: content
+                    // Handle custom relations: label: content
                     else if (
                         trimmed.includes(": ") &&
-                        trimmed.indexOf(": ") < 30
+                        trimmed.indexOf(": ") < 40
                     ) {
                         const colonIndex = trimmed.indexOf(": ");
-                        const potentialConnector = trimmed
+                        const potentialLabel = trimmed
                             .substring(0, colonIndex)
                             .trim();
-                        // Only treat as connector if it's a reasonable phrase
-                        if (potentialConnector.split(" ").length <= 3) {
-                            relationLabel = potentialConnector
+                        // Accept any reasonable relation label
+                        if (
+                            potentialLabel.length > 0 &&
+                            potentialLabel.length < 30 &&
+                            !potentialLabel.includes(" ")
+                        ) {
+                            relationLabel = potentialLabel;
+                            content = trimmed.substring(colonIndex + 2).trim();
+                        } else if (potentialLabel.split(" ").length <= 3) {
+                            // Allow multi-word labels like "key insight", "action plan"
+                            relationLabel = potentialLabel
                                 .toLowerCase()
                                 .replace(/\s+/g, "_");
                             content = trimmed.substring(colonIndex + 2).trim();
                         }
                     }
 
-                    // Default relation label
-                    if (!relationLabel) {
-                        if (finalLevel === 0) {
-                            relationLabel = "insight";
-                        } else if (trimmed.startsWith("Phase ")) {
-                            relationLabel = "phase";
-                        } else {
-                            relationLabel = "thought";
-                        }
+                    // Special case for first line - always root
+                    if (i === 0) {
+                        relationLabel = "root_thought";
                     }
 
                     const thought = {
                         content,
                         relationLabel,
-                        indentLevel: finalLevel,
+                        indentLevel,
                         children: [],
                     };
 
-                    // Build tree structure using stack
-                    // Ensure stack has the right depth - pop elements deeper than current level
-                    while (stack.length > finalLevel) {
+                    // Build tree using simple stack approach
+                    // Adjust stack to current level
+                    while (stack.length > indentLevel) {
                         stack.pop();
                     }
 
-                    // Add to appropriate parent based on level
-                    if (finalLevel === 0) {
-                        // Top-level thought - add to root
+                    // Add to appropriate parent
+                    if (indentLevel === 0 && i === 0) {
+                        // Only the very first line is truly root
                         thoughts.push(thought);
-                    } else if (stack.length === finalLevel) {
-                        // Same level as previous - add to same parent
-                        // Find the parent at level finalLevel - 1
-                        const parent = stack[finalLevel - 1];
-                        if (parent) {
-                            parent.children.push(thought);
+                    } else if (indentLevel === 0 && i > 0) {
+                        // Lines at level 0 after the first become children of root
+                        if (thoughts.length > 0) {
+                            thoughts[0].children.push(thought);
                         } else {
                             thoughts.push(thought);
                         }
+                    } else if (indentLevel > 0 && stack[indentLevel - 1]) {
+                        // Add as child to parent at previous level
+                        stack[indentLevel - 1].children.push(thought);
                     } else {
-                        // Different level - add to appropriate parent
-                        if (stack.length > 0) {
-                            stack[stack.length - 1].children.push(thought);
+                        // Fallback: add to root if no proper parent found
+                        if (thoughts.length > 0) {
+                            thoughts[0].children.push(thought);
                         } else {
                             thoughts.push(thought);
                         }
                     }
 
-                    // Update stack to current level
-                    // Ensure stack has exactly finalLevel elements, then add current thought
-                    while (stack.length < finalLevel) {
-                        // Fill with nulls if needed (shouldn't happen with proper hierarchy)
+                    // Update stack - ensure we have the right depth and set current thought
+                    while (stack.length <= indentLevel) {
                         stack.push(null);
                     }
-                    while (stack.length > finalLevel) {
-                        stack.pop();
-                    }
-                    stack.push(thought);
+                    stack[indentLevel] = thought;
                 }
 
                 return thoughts;
