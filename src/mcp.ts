@@ -62,7 +62,7 @@ try {
 // Create the MCP server
 const server = new McpServer({
     name: "mew-mcp",
-    version: "1.1.52",
+    version: "1.1.53",
     description:
         "Mew Knowledge Base - A hierarchical graph that lets humans and AI build connected, searchable knowledge together. Each user has key collections under their root: My Stream (capture inbox), My Templates (reusable patterns), My Favorites (bookmarks), My Highlights (web clips), My Hashtags (organization).",
 });
@@ -1537,6 +1537,14 @@ Or build deep hierarchies - whatever matches your thinking!`),
                     else if (trimmed.match(/^Phase \d+:/i)) {
                         semanticLevel = 1;
                     }
+                    // "First/Second/Third top-level insight:" should be level 1 (direct children of main header)
+                    else if (
+                        trimmed.match(
+                            /^(First|Second|Third|Fourth|Fifth)\s+top-level\s+insight:/i
+                        )
+                    ) {
+                        semanticLevel = 1;
+                    }
                     // Other lines ending with colon are section headers at current level + 1
                     else if (
                         trimmed.endsWith(":") &&
@@ -1686,15 +1694,8 @@ Or build deep hierarchies - whatever matches your thinking!`),
                 thoughts: any[],
                 currentParentId: string
             ): Promise<any[]> => {
-                console.log(
-                    `\n--- Creating ${thoughts.length} nodes under parent: ${currentParentId} ---`
-                );
                 const results = [];
                 for (const thought of thoughts) {
-                    console.log(
-                        `Creating node: "${thought.content.slice(0, 40)}..." under parent ${currentParentId}`
-                    );
-
                     // Create the node
                     const result = await nodeService.addNode({
                         content: {
@@ -1706,10 +1707,6 @@ Or build deep hierarchies - whatever matches your thinking!`),
                         authorId: "noreply@anthropic.com", // Always Claude
                     });
 
-                    console.log(
-                        `✅ Created node ID: ${result.newNodeId} (relation: ${thought.relationLabel})`
-                    );
-
                     const nodeResult: any = {
                         nodeId: result.newNodeId,
                         content: thought.content,
@@ -1719,53 +1716,18 @@ Or build deep hierarchies - whatever matches your thinking!`),
 
                     // Create children recursively
                     if (thought.children.length > 0) {
-                        console.log(
-                            `📁 Node ${result.newNodeId} has ${thought.children.length} children, creating them...`
-                        );
                         nodeResult.children = await createThoughtNodes(
                             thought.children,
                             result.newNodeId
-                        );
-                        console.log(
-                            `📁 Finished creating children for ${result.newNodeId}`
-                        );
-                    } else {
-                        console.log(
-                            `📄 Node ${result.newNodeId} has no children`
                         );
                     }
 
                     results.push(nodeResult);
                 }
-                console.log(
-                    `--- Finished creating ${thoughts.length} nodes under ${currentParentId} ---\n`
-                );
                 return results;
             };
 
             const parsedThoughts = parseThinkingMarkdown(thinkingMarkdown);
-
-            // DEBUG: Log the parsed structure
-            console.log("=== CLAUDE THINK TREE DEBUG ===");
-            console.log("Effective parent ID:", effectiveParentId);
-            console.log("Parsed thoughts count:", parsedThoughts.length);
-
-            const logThoughtStructure = (thoughts: any[], indent = "") => {
-                thoughts.forEach((thought, i) => {
-                    console.log(
-                        `${indent}${i + 1}. L${thought.indentLevel}: ${thought.content.slice(0, 50)}...`
-                    );
-                    if (thought.children.length > 0) {
-                        console.log(
-                            `${indent}   Children (${thought.children.length}):`
-                        );
-                        logThoughtStructure(thought.children, indent + "   ");
-                    }
-                });
-            };
-
-            console.log("Parsed structure:");
-            logThoughtStructure(parsedThoughts);
 
             // Create all the nodes
             const createdNodes = await createThoughtNodes(
