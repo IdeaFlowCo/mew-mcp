@@ -62,7 +62,7 @@ try {
 // Create the MCP server
 const server = new McpServer({
     name: "mew-mcp",
-    version: "1.1.54",
+    version: "1.1.55",
     description:
         "Mew Knowledge Base - A hierarchical graph that lets humans and AI build connected, searchable knowledge together. Each user has key collections under their root: My Stream (capture inbox), My Templates (reusable patterns), My Favorites (bookmarks), My Highlights (web clips), My Hashtags (organization).",
 });
@@ -162,7 +162,7 @@ server.tool(
     },
     {
         description:
-            "Create new structural elements, templates, outlines, or organizational nodes. Typically used for building hierarchies, creating content for users when they explicitly request it, or administrative tasks.",
+            "🏗️ USER CONTENT CREATION TOOL - Use this when helping USERS create THEIR content, notes, or organizational structures. This is for when the user asks you to 'create a note about X' or 'add this to my knowledge base' or 'help me organize my thoughts.' You are acting as the user's assistant to build content FOR THEM. Do NOT use this for your own thinking - use claudeThinkTree for that.",
     },
     async (params) => {
         const {
@@ -800,7 +800,8 @@ server.tool(
                         loadedNodes: Map<string, any>,
                         relationships: Map<string, string[]>,
                         depth = 0,
-                        visited = new Set<string>()
+                        visited = new Set<string>(),
+                        parentId?: string
                     ): any => {
                         if (visited.has(nodeId) || depth > 15) return null;
 
@@ -819,7 +820,8 @@ server.tool(
                                     loadedNodes,
                                     relationships,
                                     depth + 1,
-                                    newVisited
+                                    newVisited,
+                                    nodeId // Pass current node as parent for children
                                 )
                             )
                             .filter(Boolean);
@@ -847,6 +849,7 @@ server.tool(
                             id: nodeId,
                             title: title.replace(/\n/g, " "),
                             depth,
+                            parentId: parentId || null,
                             childCount: childIds.length,
                             hasChildren: childIds.length > 0,
                             children,
@@ -862,7 +865,9 @@ server.tool(
 
                         const connector = isLast ? "└── " : "├── ";
                         const folder = node.hasChildren ? "📁 " : "📄 ";
-                        const nodeDisplay = `${folder}${node.title} [${node.id}]`;
+                        const depthIndicator = `L${node.depth}:`;
+                        const parentInfo = node.parentId ? ` (parent: ${node.parentId.slice(0, 8)}...)` : " (ROOT)";
+                        const nodeDisplay = `${depthIndicator} ${folder}${node.title} [${node.id}]${parentInfo}`;
                         const nodeText = `${indent}${connector}${nodeDisplay}\n`;
 
                         const childPrefix = indent + (isLast ? "    " : "│   ");
@@ -961,7 +966,7 @@ server.tool(
     },
     {
         description:
-            "Claude's STRUCTURE MAPPING TOOL - Get the complete structural map of a knowledge base! Loads massive trees (12 levels deep, 200+ nodes wide) showing just titles and IDs like a file explorer. Perfect for: understanding knowledge base organization, finding where things are located, planning navigation, getting the 'big picture' layout. Shows node IDs so you can use getChildNodes to zoom into specific areas. Fast bulk operation optimized for structure discovery.",
+            "Claude's STRUCTURE MAPPING TOOL - Get the complete structural map with EXPLICIT PARENT-CHILD RELATIONSHIPS! Shows actual database relationships, not just visual hierarchy. Each node displays: depth level (L0, L1, L2...), title, node ID, and ACTUAL PARENT ID. Perfect for: understanding exact parent-child structure, planning moveNodes operations, seeing true database relationships. No more guessing - every relationship is explicit and move-operation ready!",
     },
     async ({ rootNodeId }) => {
         try {
@@ -973,7 +978,8 @@ server.tool(
                 loadedNodes: Map<string, any>,
                 relationships: Map<string, string[]>,
                 depth = 0,
-                visited = new Set<string>()
+                visited = new Set<string>(),
+                parentId?: string
             ): any => {
                 // Prevent infinite recursion from cycles
                 if (visited.has(nodeId)) {
@@ -1015,7 +1021,8 @@ server.tool(
                             loadedNodes,
                             relationships,
                             depth + 1,
-                            newVisited
+                            newVisited,
+                            nodeId // Pass current node as parent for children
                         )
                     )
                     .filter(Boolean);
@@ -1044,13 +1051,14 @@ server.tool(
                     id: nodeId,
                     title: title.replace(/\n/g, " "), // Clean title for tree display
                     depth,
+                    parentId: parentId || null,
                     childCount: childIds.length,
                     hasChildren: childIds.length > 0,
                     children,
                 };
             };
 
-            // Build beautiful file tree text representation
+            // Build beautiful file tree text representation with parent info
             const buildFileTreeText = (
                 node: any,
                 indent = "",
@@ -1060,7 +1068,9 @@ server.tool(
 
                 const connector = isLast ? "└── " : "├── ";
                 const folder = node.hasChildren ? "📁 " : "📄 ";
-                const nodeDisplay = `${folder}${node.title} [${node.id}]`;
+                const depthIndicator = `L${node.depth}:`;
+                const parentInfo = node.parentId ? ` (parent: ${node.parentId.slice(0, 8)}...)` : " (ROOT)";
+                const nodeDisplay = `${depthIndicator} ${folder}${node.title} [${node.id}]${parentInfo}`;
                 const nodeText = `${indent}${connector}${nodeDisplay}\n`;
 
                 const childPrefix = indent + (isLast ? "    " : "│   ");
@@ -1535,7 +1545,7 @@ Or build deep hierarchies - whatever matches your thinking!`),
 
                     // Special case for first line - always root
                     if (i === 0) {
-                        relationLabel = "root_thought";
+                        relationLabel = "thought";
                     }
 
                     const thought = {
